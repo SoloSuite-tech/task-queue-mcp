@@ -734,6 +734,7 @@ def set_task_status_handler(
     allow_override: bool = False,
     queue_dir: str | None = None,
     enforce_ownership: bool = False,
+    execution_model: str | None = None,
 ) -> dict:
     """
     Operator-facing status change. Broader than update_task but audited and bounded:
@@ -757,6 +758,8 @@ def set_task_status_handler(
     else's. The remaining transitions this handler serves stay operator-only, so they never
     reach it with it set.
     """
+    if execution_model is not None and (actor != OPERATOR_ACTOR or status != 'approved' or execution_model not in ('claude-opus-5', 'gpt-6-astra', 'claude-fable-5-1')):
+        return {"ok": False, "error": "execution_model requires operator approval and must be claude-opus-5, gpt-6-astra or claude-fable-5-1"}
     if queue_dir is None:
         queue_dir = os.environ.get("TASK_QUEUE_DIR", "/task-queue")
 
@@ -868,6 +871,8 @@ def set_task_status_handler(
             "actor": actor,
             "note": note,
         }
+        if execution_model is not None:
+            history_entry['execution_model'] = execution_model
         if (override_ok or repair_ok) and not standard_ok:
             history_entry["override"] = True
         if repair_ok:

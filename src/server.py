@@ -555,19 +555,21 @@ if tickets.configured():
         )
 
     @mcp.tool()
-    def ticket_progress(ticket_id: int, status: str, nachweis: str = "", actor: str | None = None) -> dict:
+    def ticket_progress(ticket_id: int, status: str, nachweis: str = "", actor: str | None = None, screenshots: list[str] | None = None, kein_visual: str = "") -> dict:
         """
         Umsetzungs-Fortschritt am Ticket setzen (bauende Rollen, nur eigenes Projekt):
         "In Arbeit" (aus Bereit, beim Start), "Auf DEV" (aus In Arbeit; nachweis PFLICHT:
         DEV-Adresse + was du geprueft hast — der Kunde sieht das im Portal und bestaetigt
         dort), "Live" (aus Freigegeben, nach erfolgreichem promote mit Live-Adresse).
         Bereit setzt der Betreiber, Freigegeben bestaetigt der Kunde: beides kannst du
-        nicht. Kein Kommentar entsteht. Antwort: {ok, id, status, url, hinweis}.
+        nicht. screenshots: bis vier PNG/JPEG-Pfade unter /work/<rolle>/, von der wirklich
+        ausgerollten DEV-Seite (Desktop und mobil bei Layout). Frontend braucht Bilder
+        oder kein_visual mit konkreter Begruendung. Kein Kommentar entsteht. Antwort: {ok, id, status, url, hinweis}.
         """
         ok, actor = bind_actor(actor)
         if not ok:
             return {"ok": False, "error": actor}
-        return tickets.ticket_progress_handler(actor=actor, ticket_id=ticket_id, status=status, nachweis=nachweis)
+        return tickets.ticket_progress_handler(actor=actor, ticket_id=ticket_id, status=status, nachweis=nachweis, screenshots=screenshots, kein_visual=kein_visual, ip=tickets.peer_ip())
 
 else:
     logger.info("Tickets aus (TASK_QUEUE_TICKETS_ENABLED/CONTROL_URL/CONTROL_SECRET fehlen) — keine ticket_*-Werkzeuge.")
@@ -673,6 +675,7 @@ async def http_approve(request: Request) -> JSONResponse:
         status="approved",
         actor=OPERATOR_ACTOR,
         note=body.get("note", ""),
+        execution_model=body.get("execution_model"),
         queue_dir=QUEUE_DIR,
     )
     return _control_response(result)

@@ -256,7 +256,7 @@ def ticket_assess_handler(*, actor: str, ticket_id, projekt: str | None, bewertu
     return out
 
 
-def ticket_progress_handler(*, actor: str, ticket_id, status: str, nachweis: str = "", call=_call) -> dict:
+def ticket_progress_handler(*, actor: str, ticket_id, status: str, nachweis: str = "", screenshots: list[str] | None = None, kein_visual: str = "", ip: str | None = None, call=_call) -> dict:
     n = _nummer(ticket_id)
     if n is None:
         return {"ok": False, "error": "ticket_id muss eine Nummer sein."}
@@ -265,7 +265,7 @@ def ticket_progress_handler(*, actor: str, ticket_id, status: str, nachweis: str
         return {"ok": False, "error": "status muss 'In Arbeit', 'Auf DEV' oder 'Live' sein — Bereit setzt der Betreiber, Freigegeben bestaetigt der Kunde."}
     if ziel.lower() == "auf dev" and len((nachweis or "").strip()) < 40:
         return {"ok": False, "error": "nachweis fehlt: DEV-Adresse und was geprueft wurde (mindestens 40 Zeichen)."}
-    out = call("POST", f"/{n}/progress", body={"actor": actor, "status": ziel, "nachweis": (nachweis or "").strip()[:20000]})
+    out = call("POST", f"/{n}/progress", body={"actor": actor, "status": ziel, "nachweis": (nachweis or "").strip()[:20000], "screenshots": screenshots or [], "kein_visual": kein_visual, "ip": ip or ""})
     if out.get("ok"):
         logger.info("ticket.progress actor=%s id=%s status=%s", actor, n, out.get("status"))
     return out
