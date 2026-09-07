@@ -804,7 +804,7 @@ async def http_customer_release_approve(request: Request) -> JSONResponse:
             or not re.fullmatch(r"customer-release:parker:\d+:[a-f0-9]{64}:[a-f0-9]{64}", marker)
             or marker not in text):
         return _control_response({"ok": False, "error": "Task is not an exact broker-bound customer release"})
-    return _control_response(update_task_handler(task_id=task["id"], status="approved", actor="customer-release",
+    return _control_response(set_task_status_handler(task_id=task["id"], status="approved", actor="customer-release",
         note=f"Authenticated Parker customer confirmation: {marker}", queue_dir=QUEUE_DIR))
 
 
