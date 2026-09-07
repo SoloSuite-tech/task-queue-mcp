@@ -8,7 +8,8 @@ RUN groupadd -g 1000 ted && useradd -u 1000 -g 1000 -s /sbin/nologin -M ted
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/ ./src/
+COPY --chown=1000:1000 src/ ./src/
+RUN chmod -R u+rX /app/src
 
 EXPOSE 8485
 
