@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import sys
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -786,6 +787,25 @@ async def http_update(request: Request) -> JSONResponse:
         queue_dir=QUEUE_DIR,
     )
     return _control_response(result)
+
+
+@mcp.custom_route("/tasks/{task_id}/customer-release-approve", methods=["POST"])
+async def http_customer_release_approve(request: Request) -> JSONResponse:
+    """Broker-only final customer release transition; never an operator approval."""
+    expected = os.environ.get("CUSTOMER_RELEASE_QUEUE_SECRET", "")
+    if not expected or not hmac.compare_digest(request.headers.get("X-Customer-Release-Queue-Secret", ""), expected):
+        return _unauthorized()
+    task = get_task_handler(task_id=request.path_params["task_id"], queue_dir=QUEUE_DIR)
+    marker = str((await _json_body(request)).get("authorization", ""))
+    text = str(task.get("summary", "")) + "\n" + str((task.get("payload") or {}).get("description", ""))
+    if (task.get("status") != "submitted" or task.get("source_agent") != "tickets:umsetzung"
+            or task.get("task_type") != "deploy" or task.get("workflow_mode") != "auto"
+            or task.get("requires_approval") is not False
+            or not re.fullmatch(r"customer-release:parker:\d+:[a-f0-9]{64}:[a-f0-9]{64}", marker)
+            or marker not in text):
+        return _control_response({"ok": False, "error": "Task is not an exact broker-bound customer release"})
+    return _control_response(update_task_handler(task_id=task["id"], status="approved", actor="customer-release",
+        note=f"Authenticated Parker customer confirmation: {marker}", queue_dir=QUEUE_DIR))
 
 
 @mcp.custom_route("/tasks/{task_id}/archive", methods=["POST"])
