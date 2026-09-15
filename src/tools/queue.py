@@ -442,11 +442,20 @@ def get_task_handler(task_id: str, queue_dir: str | None = None) -> dict:
     except ValueError:
         return {"ok": False, "error": "invalid task_id format"}
 
-    # Search main queue, then archive/
-    tasks = _load_all_tasks(queue_dir, include_archived=True)
-    for task in tasks:
-        if task.get("id") == task_id:
-            return {k: v for k, v in task.items() if k != "_path"}
+    # The writer includes the UUID prefix in the filename. Try those files
+    # first, checking the full ID to handle prefix collisions. Read the YAML
+    # afresh on every call: parking/revoking an approval must take effect at
+    # the next gateway request. No task or authorization state is cached.
+    # Keep legacy filenames and main-queue precedence over archived copies.
+    for directory in (queue_dir, os.path.join(queue_dir, "archive")):
+        paths = glob.glob(os.path.join(directory, "*.yml"))
+        suffix = f"-{task_id[:8]}.yml"
+        preferred = [path for path in paths if os.path.basename(path).endswith(suffix)]
+        remaining = [path for path in paths if not os.path.basename(path).endswith(suffix)]
+        for path in preferred + remaining:
+            task = _load_task_file(path)
+            if task is not None and task.get("id") == task_id:
+                return {k: v for k, v in task.items() if k != "_path"}
 
     return {"ok": False, "error": "not found"}
 
