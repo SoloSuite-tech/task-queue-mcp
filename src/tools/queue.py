@@ -3,11 +3,13 @@ import glob
 import logging
 import os
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 
 import yaml
-from src.lineage import validate as validate_lineage, fingerprint
+
+from src.lineage import fingerprint
+from src.lineage import validate as validate_lineage
 
 logger = logging.getLogger(__name__)
 
@@ -286,14 +288,14 @@ def submit_task_handler(
         lineage = validate_lineage(lineage)
         if originating_task_id:
             parent = get_task_handler(task_id=originating_task_id, queue_dir=queue_dir)
-            inherited = (parent.get('payload') or {}).get('lineage')
-            if inherited and parent.get('target_agent') == source_agent:
+            inherited = (parent.get("payload") or {}).get("lineage")
+            if inherited and parent.get("target_agent") == source_agent:
                 inherited = validate_lineage(inherited)
-                if lineage and any(lineage[k] != inherited[k] for k in ('ticket_id', 'project')):
-                    raise ValueError('Follow-up lineage conflicts with the parent ticket')
+                if lineage and any(lineage[k] != inherited[k] for k in ("ticket_id", "project")):
+                    raise ValueError("Follow-up lineage conflicts with the parent ticket")
                 lineage = lineage or inherited
     except ValueError as exc:
-        return {'ok': False, 'error': str(exc)}
+        return {"ok": False, "error": str(exc)}
 
     task_id = str(uuid.uuid4())
     now = _now()
@@ -309,7 +311,7 @@ def submit_task_handler(
     if originating_task_id is not None:
         payload["originating_task_id"] = originating_task_id
     if lineage:
-        payload['lineage'] = lineage
+        payload["lineage"] = lineage
 
     task = {
         "id": task_id,
@@ -785,8 +787,17 @@ def set_task_status_handler(
     else's. The remaining transitions this handler serves stay operator-only, so they never
     reach it with it set.
     """
-    if execution_model is not None and (actor != OPERATOR_ACTOR or status != 'approved' or execution_model not in ('claude-opus-5', 'gpt-6-astra', 'claude-fable-5-1')):
-        return {"ok": False, "error": "execution_model requires operator approval and must be claude-opus-5, gpt-6-astra or claude-fable-5-1"}
+    if execution_model is not None and (
+        actor != OPERATOR_ACTOR
+        or status != "approved"
+        or execution_model not in ("claude-opus-5", "gpt-6-astra", "claude-fable-5-1")
+    ):
+        return {
+            "ok": False,
+            "error": "execution_model requires operator approval an"
+            "d must be claude-opus-5, gpt-6-astra or claud"
+            "e-fable-5-1",
+        }
     if queue_dir is None:
         queue_dir = os.environ.get("TASK_QUEUE_DIR", "/task-queue")
 
@@ -812,11 +823,12 @@ def set_task_status_handler(
             return {"ok": False, "error": "not found"}
 
         if expected_fingerprint is not None and (
-            actor != OPERATOR_ACTOR or status != 'approved'
+            actor != OPERATOR_ACTOR
+            or status != "approved"
             or not isinstance(expected_fingerprint, str)
             or expected_fingerprint != fingerprint(task)
         ):
-            return {'ok': False, 'error': 'Task changed after review; reload before approving'}
+            return {"ok": False, "error": "Task changed after review; reload before approving"}
 
         if _is_archived_path(task.get("_path", ""), queue_dir):
             return {"ok": False, "error": "task is archived and cannot be updated"}
@@ -906,7 +918,7 @@ def set_task_status_handler(
             "note": note,
         }
         if execution_model is not None:
-            history_entry['execution_model'] = execution_model
+            history_entry["execution_model"] = execution_model
         if (override_ok or repair_ok) and not standard_ok:
             history_entry["override"] = True
         if repair_ok:
@@ -1216,10 +1228,8 @@ def _remove_lock_file(queue_dir: str, task_id: str) -> None:
     lockers: a holder of the unlinked inode keeps its flock, and any later
     mutation attempt creates a fresh file, locks it, and then finds the task
     archived — every path ends in the existing 'task is archived' refusal."""
-    try:
+    with suppress(FileNotFoundError):
         os.unlink(os.path.join(queue_dir, ".locks", f"{task_id}.lock"))
-    except FileNotFoundError:
-        pass
 
 
 def archive_task_handler(task_id: str, actor: str, queue_dir: str | None = None) -> dict:

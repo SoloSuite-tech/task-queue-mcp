@@ -35,8 +35,16 @@ TIMEOUT_SECONDS = 90  # Transkript lesen + Anhang hochladen dauert bei langen Si
 
 ARTEN = ("aufgabe", "fehler", "feature")
 BEREICHE = (
-    "Apps", "Frontend", "Backend", "Cloud/Infrastruktur", "Agenten", "Prozesse",
-    "Daten/Integrationen", "Mail/Kommunikation", "Sicherheit/Zugaenge", "Sonstiges",
+    "Apps",
+    "Frontend",
+    "Backend",
+    "Cloud/Infrastruktur",
+    "Agenten",
+    "Prozesse",
+    "Daten/Integrationen",
+    "Mail/Kommunikation",
+    "Sicherheit/Zugaenge",
+    "Sonstiges",
 )
 
 
@@ -69,16 +77,20 @@ def peer_ip() -> str | None:
         from fastmcp.server.dependencies import get_http_request
 
         request = get_http_request()
-    except Exception:  # noqa: BLE001 — stdio, Tests
+    except Exception:
         return None
     client = getattr(request, "client", None)
     return getattr(client, "host", None) or None
 
 
-def _call(method: str, path: str = "", body: dict | None = None, params: dict | None = None) -> dict:
+def _call(
+    method: str, path: str = "", body: dict | None = None, params: dict | None = None
+) -> dict:
     url = control_base() + path
     if params:
-        url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, "")})
+        url += "?" + urllib.parse.urlencode(
+            {k: v for k, v in params.items() if v not in (None, "")}
+        )
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("x-dispatch-secret", _env("TASK_QUEUE_CONTROL_SECRET"))
@@ -91,13 +103,15 @@ def _call(method: str, path: str = "", body: dict | None = None, params: dict | 
     except urllib.error.HTTPError as e:
         try:
             antwort = json.loads(e.read() or b"{}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             antwort = {}
         fehler = antwort.get("error") or f"Kontrollebene antwortet HTTP {e.code}"
         # 404 ohne erklaerenden Text (oder "nicht eingerichtet") = die Funktion
         # existiert nicht; ein 404 MIT Text ("Ticket #7 gibt es ... nicht") ist
         # eine normale Antwort und bleibt so stehen.
-        if e.code == 404 and (not antwort.get("error") or antwort.get("error") == "nicht eingerichtet"):
+        if e.code == 404 and (
+            not antwort.get("error") or antwort.get("error") == "nicht eingerichtet"
+        ):
             fehler = (
                 "Ticketsystem ist in dieser Installation nicht eingerichtet "
                 "(AGENTS_TICKETS_URL/TOKEN/PROJECT an der Kontrollebene)."
@@ -129,28 +143,38 @@ def ticket_create_handler(
         return {
             "ok": False,
             "error": "beschreibung ist zu kurz — Befund (Werkzeug, Argumente, woertliche "
-                     "Antwort, Vermutung) und was der Betreiber tun muesste. Das Transkript "
-                     "haengt die Kontrollebene an, die Beschreibung muss trotzdem fuer sich stehen.",
+            "Antwort, Vermutung) und was der Betreiber tun muesste. Das Transkript "
+            "haengt die Kontrollebene an, die Beschreibung muss trotzdem fuer sich stehen.",
         }
     art_n = (art or "aufgabe").strip().lower()
     if art_n == "bug":
         art_n = "fehler"
     if art_n not in ARTEN:
-        return {"ok": False, "error": f"art muss eines von {', '.join(ARTEN)} sein (nicht {art!r})."}
+        return {
+            "ok": False,
+            "error": f"art muss eines von {', '.join(ARTEN)} sein (nicht {art!r}).",
+        }
     bereich_n = (bereich or "Agenten").strip()
     passend = next((b for b in BEREICHE if b.lower() == bereich_n.lower()), None)
     if passend is None:
-        return {"ok": False, "error": f"bereich muss eines von {', '.join(BEREICHE)} sein (nicht {bereich!r})."}
-    ergebnis = call("POST", "", body={
-        "actor": actor,
-        "ip": ip or "",
-        "titel": titel[:255],
-        "beschreibung": beschreibung[:20000],
-        "art": art_n,
-        "bereich": passend,
-        "quelle": (quelle or "")[:200],
-        "transkript": bool(mit_transkript),
-    })
+        return {
+            "ok": False,
+            "error": f"bereich muss eines von {', '.join(BEREICHE)} sein (nicht {bereich!r}).",
+        }
+    ergebnis = call(
+        "POST",
+        "",
+        body={
+            "actor": actor,
+            "ip": ip or "",
+            "titel": titel[:255],
+            "beschreibung": beschreibung[:20000],
+            "art": art_n,
+            "bereich": passend,
+            "quelle": (quelle or "")[:200],
+            "transkript": bool(mit_transkript),
+        },
+    )
     if ergebnis.get("ok"):
         logger.info("ticket.create actor=%s id=%s ip=%s", actor, ergebnis.get("id"), ip or "-")
     return ergebnis
@@ -163,27 +187,48 @@ def _nummer(ticket_id):
         return None
 
 
-def ticket_list_handler(*, actor: str = "", status: str | None = None, limit: int = 20,
-                        projekt: str | None = None, call=_call) -> dict:
-    return call("GET", "", params={"status": status or "", "limit": max(1, min(100, int(limit or 20))),
-                                   "projekt": (projekt or "").strip(), "actor": actor})
+def ticket_list_handler(
+    *,
+    actor: str = "",
+    status: str | None = None,
+    limit: int = 20,
+    projekt: str | None = None,
+    call=_call,
+) -> dict:
+    return call(
+        "GET",
+        "",
+        params={
+            "status": status or "",
+            "limit": max(1, min(100, int(limit or 20))),
+            "projekt": (projekt or "").strip(),
+            "actor": actor,
+        },
+    )
 
 
-def ticket_get_handler(*, actor: str = "", ticket_id, projekt: str | None = None, call=_call) -> dict:
+def ticket_get_handler(
+    *, actor: str = "", ticket_id, projekt: str | None = None, call=_call
+) -> dict:
     n = _nummer(ticket_id)
     if n is None:
         return {"ok": False, "error": "ticket_id muss eine Nummer sein."}
     return call("GET", f"/{n}", params={"projekt": (projekt or "").strip(), "actor": actor})
 
 
-def ticket_comment_handler(*, actor: str, ticket_id, text: str, projekt: str | None = None, call=_call) -> dict:
+def ticket_comment_handler(
+    *, actor: str, ticket_id, text: str, projekt: str | None = None, call=_call
+) -> dict:
     n = _nummer(ticket_id)
     if n is None:
         return {"ok": False, "error": "ticket_id muss eine Nummer sein."}
     if not (text or "").strip():
         return {"ok": False, "error": "text fehlt."}
-    return call("POST", f"/{n}/comment", body={"actor": actor, "text": text.strip()[:20000],
-                                               "projekt": (projekt or "").strip()})
+    return call(
+        "POST",
+        f"/{n}/comment",
+        body={"actor": actor, "text": text.strip()[:20000], "projekt": (projekt or "").strip()},
+    )
 
 
 EMPFEHLUNGEN = ("Bereit", "Rückfrage", "Nicht umsetzbar", "Betreiber-Entscheidung")
@@ -196,6 +241,7 @@ def leitplanken(subject: str, beschreibung: str) -> dict:
     from src.tools import ticket_validator
 
     b = ticket_validator.pruefen(subject or "", beschreibung or "")
+
     def _text(h, praefix=""):
         if isinstance(h, dict):
             grund, fund = h.get("grund", ""), h.get("fund", "")
@@ -207,31 +253,62 @@ def leitplanken(subject: str, beschreibung: str) -> dict:
     befunde += list(b.get("kapazitaet_hinweise") or [])
     if b.get("groesse_hinweis") in ("L", "XL"):
         befunde.append(f"Groessen-Hinweis aus dem Text: {b['groesse_hinweis']}")
-    return {"urteil": b.get("urteil", "OK"), "befunde": befunde, "groesse_hinweis": b.get("groesse_hinweis")}
+    return {
+        "urteil": b.get("urteil", "OK"),
+        "befunde": befunde,
+        "groesse_hinweis": b.get("groesse_hinweis"),
+    }
 
 
-def ticket_assess_handler(*, actor: str, ticket_id, projekt: str | None, bewertung: str, groesse: str,
-                          risiko: str, empfehlung: str, loesungsvorschlag: str = "", rueckfrage: str = "",
-                          antwortvorschlag: str = "", umsetzung: str = "", call=_call) -> dict:
+def ticket_assess_handler(
+    *,
+    actor: str,
+    ticket_id,
+    projekt: str | None,
+    bewertung: str,
+    groesse: str,
+    risiko: str,
+    empfehlung: str,
+    loesungsvorschlag: str = "",
+    rueckfrage: str = "",
+    antwortvorschlag: str = "",
+    umsetzung: str = "",
+    call=_call,
+) -> dict:
     n = _nummer(ticket_id)
     if n is None:
         return {"ok": False, "error": "ticket_id muss eine Nummer sein."}
     if len((bewertung or "").strip()) < 80:
-        return {"ok": False, "error": "bewertung ist zu kurz — Notwendigkeit, Sinn, Alternativen, Aufwand, "
-                                      "Auslastung und Risiko in ganzen Saetzen (mindestens 80 Zeichen)."}
+        return {
+            "ok": False,
+            "error": "bewertung ist zu kurz — Notwendigkeit, Sinn, Alternativen, Aufwand, "
+            "Auslastung und Risiko in ganzen Saetzen (mindestens 80 Zeichen).",
+        }
     emp = next((e for e in EMPFEHLUNGEN if e.lower() == (empfehlung or "").strip().lower()), None)
     if emp is None:
         return {"ok": False, "error": f"empfehlung muss eines von {' | '.join(EMPFEHLUNGEN)} sein."}
     if (rueckfrage or "").strip() and emp != "Rückfrage":
-        return {"ok": False, "error": "rueckfrage gesetzt, aber empfehlung ist nicht 'Rückfrage' — eines von beidem anpassen."}
+        return {
+            "ok": False,
+            "error": "rueckfrage gesetzt, aber empfehlung ist nicht"
+            " 'Rückfrage' — eines von beidem anpassen.",
+        }
     u = (umsetzung or "").strip()
     if not (u.lower() == "betreiber" or (u.lower().startswith("kunde:") and len(u) > 6)):
-        return {"ok": False, "error": "umsetzung muss 'kunde:<rolle>' (z. B. kunde:frontend-developer — die Agenten des "
-                                      "Kunden koennen es in ihrem eigenen Cockpit erledigen) oder 'betreiber' sein "
-                                      "(Host, Root, DNS, Secrets, neue Dienste, Vertrags-/Kostenentscheidung)."}
+        return {
+            "ok": False,
+            "error": "umsetzung muss 'kunde:<rolle>' (z. B. kunde:f"
+            "rontend-developer — die Agenten des "
+            "Kunden koennen es in ihrem eigenen Cockpit erledigen) oder 'betreiber' sein "
+            "(Host, Root, DNS, Secrets, neue Dienste, Vertrags-/Kostenentscheidung).",
+        }
     if len((antwortvorschlag or "").strip()) < 40:
-        return {"ok": False, "error": "antwortvorschlag fehlt oder ist zu kurz — drei bis fuenf freundliche Saetze, die der "
-                                      "Betreiber als Antwort an den Kunden uebernehmen kann (mindestens 40 Zeichen)."}
+        return {
+            "ok": False,
+            "error": "antwortvorschlag fehlt oder ist zu kurz — dre"
+            "i bis fuenf freundliche Saetze, die der "
+            "Betreiber als Antwort an den Kunden uebernehmen kann (mindestens 40 Zeichen).",
+        }
     # Erst das Ticket holen: Leitplanken laufen ueber den ECHTEN Ticket-Text,
     # nicht ueber das, was der Bewerter davon zitiert.
     p = (projekt or "").strip()
@@ -240,32 +317,75 @@ def ticket_assess_handler(*, actor: str, ticket_id, projekt: str | None, bewertu
         return t
     ticket = t.get("ticket") or {}
     lp = leitplanken(ticket.get("titel", ""), ticket.get("beschreibung", ""))
-    out = call("POST", f"/{n}/assess", body={
-        "actor": actor, "projekt": p,
-        "bewertung": bewertung.strip()[:20000],
-        "groesse": (groesse or "").strip().upper(), "risiko": (risiko or "").strip().lower(), "empfehlung": emp,
-        "loesungsvorschlag": (loesungsvorschlag or "").strip()[:20000],
-        "rueckfrage": (rueckfrage or "").strip()[:4000],
-        "antwortvorschlag": (antwortvorschlag or "").strip()[:8000],
-        "umsetzung": u[:120],
-        "leitplanken": lp,
-    })
+    out = call(
+        "POST",
+        f"/{n}/assess",
+        body={
+            "actor": actor,
+            "projekt": p,
+            "bewertung": bewertung.strip()[:20000],
+            "groesse": (groesse or "").strip().upper(),
+            "risiko": (risiko or "").strip().lower(),
+            "empfehlung": emp,
+            "loesungsvorschlag": (loesungsvorschlag or "").strip()[:20000],
+            "rueckfrage": (rueckfrage or "").strip()[:4000],
+            "antwortvorschlag": (antwortvorschlag or "").strip()[:8000],
+            "umsetzung": u[:120],
+            "leitplanken": lp,
+        },
+    )
     if out.get("ok"):
         out["leitplanken"] = lp
-        logger.info("ticket.assess actor=%s id=%s projekt=%s empfehlung=%s urteil=%s", actor, n, p or "-", out.get("empfehlung"), lp["urteil"])
+        logger.info(
+            "ticket.assess actor=%s id=%s projekt=%s empfehlung=%s urteil=%s",
+            actor,
+            n,
+            p or "-",
+            out.get("empfehlung"),
+            lp["urteil"],
+        )
     return out
 
 
-def ticket_progress_handler(*, actor: str, ticket_id, status: str, nachweis: str = "", screenshots: list[str] | None = None, kein_visual: str = "", ip: str | None = None, call=_call) -> dict:
+def ticket_progress_handler(
+    *,
+    actor: str,
+    ticket_id,
+    status: str,
+    nachweis: str = "",
+    screenshots: list[str] | None = None,
+    kein_visual: str = "",
+    ip: str | None = None,
+    call=_call,
+) -> dict:
     n = _nummer(ticket_id)
     if n is None:
         return {"ok": False, "error": "ticket_id muss eine Nummer sein."}
     ziel = (status or "").strip()
     if ziel.lower() not in ("in arbeit", "auf dev", "live"):
-        return {"ok": False, "error": "status muss 'In Arbeit', 'Auf DEV' oder 'Live' sein — Bereit setzt der Betreiber, Freigegeben bestaetigt der Kunde."}
+        return {
+            "ok": False,
+            "error": "status muss 'In Arbeit', 'Auf DEV' oder 'Live"
+            "' sein — Bereit setzt der Betreiber, Freigege"
+            "ben bestaetigt der Kunde.",
+        }
     if ziel.lower() == "auf dev" and len((nachweis or "").strip()) < 40:
-        return {"ok": False, "error": "nachweis fehlt: DEV-Adresse und was geprueft wurde (mindestens 40 Zeichen)."}
-    out = call("POST", f"/{n}/progress", body={"actor": actor, "status": ziel, "nachweis": (nachweis or "").strip()[:20000], "screenshots": screenshots or [], "kein_visual": kein_visual, "ip": ip or ""})
+        return {
+            "ok": False,
+            "error": "nachweis fehlt: DEV-Adresse und was geprueft wurde (mindestens 40 Zeichen).",
+        }
+    out = call(
+        "POST",
+        f"/{n}/progress",
+        body={
+            "actor": actor,
+            "status": ziel,
+            "nachweis": (nachweis or "").strip()[:20000],
+            "screenshots": screenshots or [],
+            "kein_visual": kein_visual,
+            "ip": ip or "",
+        },
+    )
     if out.get("ok"):
         logger.info("ticket.progress actor=%s id=%s status=%s", actor, n, out.get("status"))
     return out

@@ -4,6 +4,7 @@ Kontrollebene weiter und validiert die Eingaben, bevor ein Request entsteht."""
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import ClassVar
 
 import pytest
 
@@ -15,7 +16,11 @@ def _aufzeichner(antwort=None):
 
     def call(method, path="", body=None, params=None):
         calls.append({"method": method, "path": path, "body": body, "params": params})
-        return antwort if antwort is not None else {"ok": True, "id": 42, "url": "https://tickets.example/t/42"}
+        return (
+            antwort
+            if antwort is not None
+            else {"ok": True, "id": 42, "url": "https://tickets.example/t/42"}
+        )
 
     return calls, call
 
@@ -42,26 +47,35 @@ def test_control_base_leitet_pfad_aus_basis_url_ab(monkeypatch):
 def test_create_reicht_rolle_und_ip_durch():
     calls, call = _aufzeichner()
     out = tickets.ticket_create_handler(
-        actor="crm-manager", titel="Segment-Export scheitert am Mautic-Token",
-        beschreibung="segment_preview antwortet 401; Token laut doctor abgelaufen, Fix liegt in der .env.",
-        art="Bug", bereich="agenten", quelle="doctor", ip="10.42.0.7", call=call,
+        actor="crm-manager",
+        titel="Segment-Export scheitert am Mautic-Token",
+        beschreibung="segment_preview antwortet 401; Token laut doc"
+        "tor abgelaufen, Fix liegt in der .env.",
+        art="Bug",
+        bereich="agenten",
+        quelle="doctor",
+        ip="10.42.0.7",
+        call=call,
     )
     assert out["ok"] is True and out["id"] == 42
     assert len(calls) == 1
     b = calls[0]["body"]
     assert calls[0]["method"] == "POST" and calls[0]["path"] == ""
     assert b["actor"] == "crm-manager" and b["ip"] == "10.42.0.7"
-    assert b["art"] == "fehler"            # "Bug" wird normalisiert
-    assert b["bereich"] == "Agenten"       # Gross-/Kleinschreibung tolerant
+    assert b["art"] == "fehler"  # "Bug" wird normalisiert
+    assert b["bereich"] == "Agenten"  # Gross-/Kleinschreibung tolerant
     assert b["transkript"] is True and b["quelle"] == "doctor"
 
 
-@pytest.mark.parametrize("kwargs, fragment", [
-    ({"titel": "", "beschreibung": "x" * 60}, "titel"),
-    ({"titel": "T", "beschreibung": "zu kurz"}, "zu kurz"),
-    ({"titel": "T", "beschreibung": "x" * 60, "art": "story"}, "art"),
-    ({"titel": "T", "beschreibung": "x" * 60, "bereich": "Weltall"}, "bereich"),
-])
+@pytest.mark.parametrize(
+    "kwargs, fragment",
+    [
+        ({"titel": "", "beschreibung": "x" * 60}, "titel"),
+        ({"titel": "T", "beschreibung": "zu kurz"}, "zu kurz"),
+        ({"titel": "T", "beschreibung": "x" * 60, "art": "story"}, "art"),
+        ({"titel": "T", "beschreibung": "x" * 60, "bereich": "Weltall"}, "bereich"),
+    ],
+)
 def test_create_validiert_vor_dem_request(kwargs, fragment):
     calls, call = _aufzeichner()
     out = tickets.ticket_create_handler(actor="qa-tester", call=call, **kwargs)
@@ -73,18 +87,30 @@ def test_list_get_comment():
     calls, call = _aufzeichner({"ok": True})
     tickets.ticket_list_handler(actor="qa-tester", status="Neu", limit=500, call=call)
     tickets.ticket_get_handler(actor="qa-tester", ticket_id="#17", projekt="bbp", call=call)
-    tickets.ticket_comment_handler(actor="support-ops", ticket_id=17, text=" neuer Stand ", call=call)
-    assert calls[0] == {"method": "GET", "path": "", "body": None,
-                        "params": {"status": "Neu", "limit": 100, "projekt": "", "actor": "qa-tester"}}
+    tickets.ticket_comment_handler(
+        actor="support-ops", ticket_id=17, text=" neuer Stand ", call=call
+    )
+    assert calls[0] == {
+        "method": "GET",
+        "path": "",
+        "body": None,
+        "params": {"status": "Neu", "limit": 100, "projekt": "", "actor": "qa-tester"},
+    }
     assert calls[1]["path"] == "/17" and calls[1]["params"]["projekt"] == "bbp"
-    assert calls[2] == {"method": "POST", "path": "/17/comment",
-                        "body": {"actor": "support-ops", "text": "neuer Stand", "projekt": ""}, "params": None}
+    assert calls[2] == {
+        "method": "POST",
+        "path": "/17/comment",
+        "body": {"actor": "support-ops", "text": "neuer Stand", "projekt": ""},
+        "params": None,
+    }
     assert tickets.ticket_get_handler(ticket_id="abc", call=call)["ok"] is False
-    assert tickets.ticket_comment_handler(actor="x", ticket_id=1, text="  ", call=call)["ok"] is False
+    assert (
+        tickets.ticket_comment_handler(actor="x", ticket_id=1, text="  ", call=call)["ok"] is False
+    )
 
 
 class _Kontrollebene(BaseHTTPRequestHandler):
-    gesehen = []
+    gesehen: ClassVar[list] = []
 
     def _send(self, code, body):
         raw = json.dumps(body).encode()
@@ -103,7 +129,9 @@ class _Kontrollebene(BaseHTTPRequestHandler):
         if self.path.endswith("/aus/internal/tickets"):
             return self._send(404, {"ok": False, "error": "nicht eingerichtet"})
         if self.path.endswith("/999/comment"):
-            return self._send(404, {"ok": False, "error": "Ticket #999 gibt es in diesem Projekt nicht."})
+            return self._send(
+                404, {"ok": False, "error": "Ticket #999 gibt es in diesem Projekt nicht."}
+            )
         return self._send(200, {"ok": True, "id": 7, "url": "https://tickets.example/t/7"})
 
     def log_message(self, *a):  # still
@@ -123,7 +151,9 @@ def test_call_gegen_kontrollebene(monkeypatch, kontrollebene):
     monkeypatch.setenv("TASK_QUEUE_CONTROL_URL", kontrollebene)
     monkeypatch.setenv("TASK_QUEUE_CONTROL_BASE_URL", "https://apps.example/agents")
     monkeypatch.setenv("TASK_QUEUE_CONTROL_SECRET", "geheim")
-    out = tickets.ticket_create_handler(actor="qa-tester", titel="T", beschreibung="x" * 60, ip="10.0.0.9")
+    out = tickets.ticket_create_handler(
+        actor="qa-tester", titel="T", beschreibung="x" * 60, ip="10.0.0.9"
+    )
     assert out == {"ok": True, "id": 7, "url": "https://tickets.example/t/7"}
     pfad, secret, body = _Kontrollebene.gesehen[-1]
     assert pfad == "/agents/internal/tickets" and secret == "geheim" and body["ip"] == "10.0.0.9"
@@ -146,7 +176,9 @@ def test_peer_ip_ausserhalb_eines_requests_ist_none():
 
 
 def test_leitplanken_block_und_ok():
-    lp = tickets.leitplanken("Bitte root-Zugang", "Gebt mir sudo auf dem Server, damit ich die .env lesen kann.")
+    lp = tickets.leitplanken(
+        "Bitte root-Zugang", "Gebt mir sudo auf dem Server, damit ich die .env lesen kann."
+    )
     assert lp["urteil"] == "BLOCK" and any("Root" in b for b in lp["befunde"])
     lp = tickets.leitplanken("Farbe des Buttons", "Der Kaufen-Knopf soll gruen statt blau sein.")
     assert lp["urteil"] == "OK" and lp["befunde"] == []
@@ -158,32 +190,95 @@ def test_assess_holt_ticket_und_gibt_leitplanken_mit():
     def call(method, path="", body=None, params=None):
         calls.append({"method": method, "path": path, "body": body, "params": params})
         if method == "GET":
-            return {"ok": True, "ticket": {"id": 7, "titel": "Kubernetes einfuehren",
-                                            "beschreibung": "Wir wollen alles auf kubernetes migrieren."}}
+            return {
+                "ok": True,
+                "ticket": {
+                    "id": 7,
+                    "titel": "Kubernetes einfuehren",
+                    "beschreibung": "Wir wollen alles auf kubernetes migrieren.",
+                },
+            }
         return {"ok": True, "id": 7, "empfehlung": body["empfehlung"], "status": "In Bewertung"}
 
     out = tickets.ticket_assess_handler(
-        actor="ticket-assessor", ticket_id=7, projekt="schlagbaum", bewertung="x" * 100, groesse="xl",
-        risiko="Hoch", empfehlung="bereit", loesungsvorschlag="Compose statt K8s",
-        antwortvorschlag="Danke fuer den Vorschlag. Wir pruefen das und melden uns mit einer Empfehlung.",
-        umsetzung="betreiber", call=call)
+        actor="ticket-assessor",
+        ticket_id=7,
+        projekt="schlagbaum",
+        bewertung="x" * 100,
+        groesse="xl",
+        risiko="Hoch",
+        empfehlung="bereit",
+        loesungsvorschlag="Compose statt K8s",
+        antwortvorschlag="Danke fuer den Vorschlag. Wir pruefen das und"
+        " melden uns mit einer Empfehlung.",
+        umsetzung="betreiber",
+        call=call,
+    )
     assert out["ok"] is True
-    assert calls[0]["method"] == "GET" and calls[0]["params"] == {"projekt": "schlagbaum", "actor": "ticket-assessor"}
+    assert calls[0]["method"] == "GET" and calls[0]["params"] == {
+        "projekt": "schlagbaum",
+        "actor": "ticket-assessor",
+    }
     b = calls[1]["body"]
-    assert calls[1]["path"] == "/7/assess" and b["groesse"] == "XL" and b["risiko"] == "hoch" and b["empfehlung"] == "Bereit"
+    assert (
+        calls[1]["path"] == "/7/assess"
+        and b["groesse"] == "XL"
+        and b["risiko"] == "hoch"
+        and b["empfehlung"] == "Bereit"
+    )
     assert b["antwortvorschlag"].startswith("Danke") and "kommentar" not in b
-    assert b["leitplanken"]["urteil"] == "REVIEW"      # Kubernetes = Review-Muster; Erzwingen macht die Kontrollebene
+    assert (
+        b["leitplanken"]["urteil"] == "REVIEW"
+    )  # Kubernetes = Review-Muster; Erzwingen macht die Kontrollebene
     assert out["leitplanken"]["urteil"] == "REVIEW"
 
 
-@pytest.mark.parametrize("kwargs, fragment", [
-    ({"bewertung": "kurz", "groesse": "M", "risiko": "niedrig", "empfehlung": "Bereit"}, "zu kurz"),
-    ({"bewertung": "x" * 100, "groesse": "M", "risiko": "niedrig", "empfehlung": "Sofort"}, "empfehlung"),
-    ({"bewertung": "x" * 100, "groesse": "M", "risiko": "niedrig", "empfehlung": "Bereit", "rueckfrage": "Welche Farbe?"}, "rueckfrage"),
-    ({"bewertung": "x" * 100, "groesse": "M", "risiko": "niedrig", "empfehlung": "Bereit", "umsetzung": "kunde:frontend-developer"}, "antwortvorschlag"),
-    ({"bewertung": "x" * 100, "groesse": "M", "risiko": "niedrig", "empfehlung": "Bereit", "antwortvorschlag": "x" * 50}, "umsetzung"),
-])
+@pytest.mark.parametrize(
+    "kwargs, fragment",
+    [
+        (
+            {"bewertung": "kurz", "groesse": "M", "risiko": "niedrig", "empfehlung": "Bereit"},
+            "zu kurz",
+        ),
+        (
+            {"bewertung": "x" * 100, "groesse": "M", "risiko": "niedrig", "empfehlung": "Sofort"},
+            "empfehlung",
+        ),
+        (
+            {
+                "bewertung": "x" * 100,
+                "groesse": "M",
+                "risiko": "niedrig",
+                "empfehlung": "Bereit",
+                "rueckfrage": "Welche Farbe?",
+            },
+            "rueckfrage",
+        ),
+        (
+            {
+                "bewertung": "x" * 100,
+                "groesse": "M",
+                "risiko": "niedrig",
+                "empfehlung": "Bereit",
+                "umsetzung": "kunde:frontend-developer",
+            },
+            "antwortvorschlag",
+        ),
+        (
+            {
+                "bewertung": "x" * 100,
+                "groesse": "M",
+                "risiko": "niedrig",
+                "empfehlung": "Bereit",
+                "antwortvorschlag": "x" * 50,
+            },
+            "umsetzung",
+        ),
+    ],
+)
 def test_assess_validiert_vor_dem_request(kwargs, fragment):
     calls, call = _aufzeichner()
-    out = tickets.ticket_assess_handler(actor="ticket-assessor", ticket_id=7, projekt=None, call=call, **kwargs)
+    out = tickets.ticket_assess_handler(
+        actor="ticket-assessor", ticket_id=7, projekt=None, call=call, **kwargs
+    )
     assert out["ok"] is False and fragment in out["error"] and calls == []

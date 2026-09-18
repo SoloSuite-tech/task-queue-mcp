@@ -20,8 +20,8 @@ from src.auth import (
     load_agent_tokens,
     require_operator_surface,
 )
-from src.tools import tickets
 from src.lineage import fingerprint
+from src.tools import tickets
 from src.tools.queue import (
     NON_TERMINAL_STATUSES,
     OPERATOR_ACTOR,
@@ -64,14 +64,10 @@ def _archive_days() -> int:
     try:
         days = int(raw)
     except ValueError:
-        logger.error(
-            "Refusing to start: TASK_QUEUE_ARCHIVE_DAYS=%r is not an integer.", raw
-        )
+        logger.error("Refusing to start: TASK_QUEUE_ARCHIVE_DAYS=%r is not an integer.", raw)
         sys.exit(1)
     if days < 0:
-        logger.error(
-            "Refusing to start: TASK_QUEUE_ARCHIVE_DAYS=%d must be >= 0.", days
-        )
+        logger.error("Refusing to start: TASK_QUEUE_ARCHIVE_DAYS=%d must be >= 0.", days)
         sys.exit(1)
     return days
 
@@ -205,22 +201,24 @@ def submit_task(
     if not ok:
         return {"ok": False, "error": source_agent}
 
-    return _with_cockpit_url(submit_task_handler(
-        source_agent=source_agent,
-        target_agent=target_agent,
-        task_type=task_type,
-        summary=summary,
-        description=description,
-        risk_level=risk_level,
-        requires_approval=requires_approval,
-        priority=priority,
-        context_refs=context_refs or [],
-        ttl_days=ttl_days,
-        workflow_mode=workflow_mode,
-        originating_task_id=originating_task_id,
-        lineage=lineage,
-        queue_dir=QUEUE_DIR,
-    ))
+    return _with_cockpit_url(
+        submit_task_handler(
+            source_agent=source_agent,
+            target_agent=target_agent,
+            task_type=task_type,
+            summary=summary,
+            description=description,
+            risk_level=risk_level,
+            requires_approval=requires_approval,
+            priority=priority,
+            context_refs=context_refs or [],
+            ttl_days=ttl_days,
+            workflow_mode=workflow_mode,
+            originating_task_id=originating_task_id,
+            lineage=lineage,
+            queue_dir=QUEUE_DIR,
+        )
+    )
 
 
 @mcp.tool()
@@ -459,13 +457,23 @@ if tickets.configured():
         if not ok:
             return {"ok": False, "error": actor}
         return tickets.ticket_create_handler(
-            actor=actor, titel=titel, beschreibung=beschreibung, art=art, bereich=bereich,
-            quelle=quelle, mit_transkript=mit_transkript, ip=tickets.peer_ip(),
+            actor=actor,
+            titel=titel,
+            beschreibung=beschreibung,
+            art=art,
+            bereich=bereich,
+            quelle=quelle,
+            mit_transkript=mit_transkript,
+            ip=tickets.peer_ip(),
         )
 
     @mcp.tool()
-    def ticket_list(status: str | None = None, limit: int = 20, projekt: str | None = None,
-                    actor: str | None = None) -> dict:
+    def ticket_list(
+        status: str | None = None,
+        limit: int = 20,
+        projekt: str | None = None,
+        actor: str | None = None,
+    ) -> dict:
         """
         Tickets dieses Betriebs, juengste Aenderung zuerst. status: Name wie "Neu",
         "In Bewertung", "Rückfrage", "Bereit", "In Arbeit", "Auf DEV", "Review",
@@ -494,7 +502,9 @@ if tickets.configured():
         return tickets.ticket_get_handler(actor=actor, ticket_id=ticket_id, projekt=projekt)
 
     @mcp.tool()
-    def ticket_comment(ticket_id: int, text: str, projekt: str | None = None, actor: str | None = None) -> dict:
+    def ticket_comment(
+        ticket_id: int, text: str, projekt: str | None = None, actor: str | None = None
+    ) -> dict:
         """
         Kommentar an ein Ticket (als deine Rolle gekennzeichnet, fuer den Kunden
         sichtbar): Nachtrag zum Befund, Antwort auf eine Rueckfrage, neuer Stand.
@@ -503,7 +513,9 @@ if tickets.configured():
         ok, actor = bind_actor(actor)
         if not ok:
             return {"ok": False, "error": actor}
-        return tickets.ticket_comment_handler(actor=actor, ticket_id=ticket_id, text=text, projekt=projekt)
+        return tickets.ticket_comment_handler(
+            actor=actor, ticket_id=ticket_id, text=text, projekt=projekt
+        )
 
     @mcp.tool()
     def ticket_assess(
@@ -553,13 +565,28 @@ if tickets.configured():
         if not ok:
             return {"ok": False, "error": actor}
         return tickets.ticket_assess_handler(
-            actor=actor, ticket_id=ticket_id, projekt=projekt, bewertung=bewertung, groesse=groesse,
-            risiko=risiko, empfehlung=empfehlung, loesungsvorschlag=loesungsvorschlag,
-            rueckfrage=rueckfrage, antwortvorschlag=antwortvorschlag, umsetzung=umsetzung,
+            actor=actor,
+            ticket_id=ticket_id,
+            projekt=projekt,
+            bewertung=bewertung,
+            groesse=groesse,
+            risiko=risiko,
+            empfehlung=empfehlung,
+            loesungsvorschlag=loesungsvorschlag,
+            rueckfrage=rueckfrage,
+            antwortvorschlag=antwortvorschlag,
+            umsetzung=umsetzung,
         )
 
     @mcp.tool()
-    def ticket_progress(ticket_id: int, status: str, nachweis: str = "", actor: str | None = None, screenshots: list[str] | None = None, kein_visual: str = "") -> dict:
+    def ticket_progress(
+        ticket_id: int,
+        status: str,
+        nachweis: str = "",
+        actor: str | None = None,
+        screenshots: list[str] | None = None,
+        kein_visual: str = "",
+    ) -> dict:
         """
         Umsetzungs-Fortschritt am Ticket setzen (bauende Rollen, nur eigenes Projekt):
         "In Arbeit" (aus Bereit, beim Start), "Auf DEV" (aus In Arbeit; nachweis PFLICHT:
@@ -568,15 +595,28 @@ if tickets.configured():
         Bereit setzt der Betreiber, Freigegeben bestaetigt der Kunde: beides kannst du
         nicht. screenshots: bis vier PNG/JPEG-Pfade unter /work/<rolle>/, von der wirklich
         ausgerollten DEV-Seite (Desktop und mobil bei Layout). Frontend braucht Bilder
-        oder kein_visual mit konkreter Begruendung. Kein Kommentar entsteht. Antwort: {ok, id, status, url, hinweis}.
+        oder kein_visual mit konkreter Begruendung. Kein Kommentar entsteht.
+        Antwort: {ok, id, status, url, hinweis}.
         """
         ok, actor = bind_actor(actor)
         if not ok:
             return {"ok": False, "error": actor}
-        return tickets.ticket_progress_handler(actor=actor, ticket_id=ticket_id, status=status, nachweis=nachweis, screenshots=screenshots, kein_visual=kein_visual, ip=tickets.peer_ip())
+        return tickets.ticket_progress_handler(
+            actor=actor,
+            ticket_id=ticket_id,
+            status=status,
+            nachweis=nachweis,
+            screenshots=screenshots,
+            kein_visual=kein_visual,
+            ip=tickets.peer_ip(),
+        )
 
 else:
-    logger.info("Tickets aus (TASK_QUEUE_TICKETS_ENABLED/CONTROL_URL/CONTROL_SECRET fehlen) — keine ticket_*-Werkzeuge.")
+    logger.info(
+        "Tickets aus (TASK_QUEUE_TICKETS_ENABLED/CONTR"
+        "OL_URL/CONTROL_SECRET fehlen) — keine ticket_"
+        "*-Werkzeuge."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -680,7 +720,7 @@ async def http_approve(request: Request) -> JSONResponse:
         actor=OPERATOR_ACTOR,
         note=body.get("note", ""),
         execution_model=body.get("execution_model"),
-        expected_fingerprint=body.get('expected_fingerprint'),
+        expected_fingerprint=body.get("expected_fingerprint"),
         queue_dir=QUEUE_DIR,
     )
     return _control_response(result)
@@ -797,19 +837,38 @@ async def http_update(request: Request) -> JSONResponse:
 async def http_customer_release_approve(request: Request) -> JSONResponse:
     """Broker-only final customer release transition; never an operator approval."""
     expected = os.environ.get("CUSTOMER_RELEASE_QUEUE_SECRET", "")
-    if not expected or not hmac.compare_digest(request.headers.get("X-Customer-Release-Queue-Secret", ""), expected):
+    if not expected or not hmac.compare_digest(
+        request.headers.get("X-Customer-Release-Queue-Secret", ""), expected
+    ):
         return _unauthorized()
     task = get_task_handler(task_id=request.path_params["task_id"], queue_dir=QUEUE_DIR)
     marker = str((await _json_body(request)).get("authorization", ""))
-    text = str(task.get("summary", "")) + "\n" + str((task.get("payload") or {}).get("description", ""))
-    if (task.get("status") != "submitted" or task.get("source_agent") != "tickets:umsetzung"
-            or task.get("task_type") != "deploy" or task.get("workflow_mode") != "auto"
-            or task.get("requires_approval") is not False
-            or not re.fullmatch(r"customer-release:parker:\d+:[a-f0-9]{64}:[a-f0-9]{64}", marker)
-            or marker not in text):
-        return _control_response({"ok": False, "error": "Task is not an exact broker-bound customer release"})
-    return _control_response(set_task_status_handler(task_id=task["id"], status="approved", actor="customer-release",
-        note=f"Authenticated Parker customer confirmation: {marker}", queue_dir=QUEUE_DIR))
+    text = (
+        str(task.get("summary", ""))
+        + "\n"
+        + str((task.get("payload") or {}).get("description", ""))
+    )
+    if (
+        task.get("status") != "submitted"
+        or task.get("source_agent") != "tickets:umsetzung"
+        or task.get("task_type") != "deploy"
+        or task.get("workflow_mode") != "auto"
+        or task.get("requires_approval") is not False
+        or not re.fullmatch(r"customer-release:parker:\d+:[a-f0-9]{64}:[a-f0-9]{64}", marker)
+        or marker not in text
+    ):
+        return _control_response(
+            {"ok": False, "error": "Task is not an exact broker-bound customer release"}
+        )
+    return _control_response(
+        set_task_status_handler(
+            task_id=task["id"],
+            status="approved",
+            actor="customer-release",
+            note=f"Authenticated Parker customer confirmation: {marker}",
+            queue_dir=QUEUE_DIR,
+        )
+    )
 
 
 @mcp.custom_route("/tasks/{task_id}/archive", methods=["POST"])
@@ -858,8 +917,8 @@ async def http_submit(request: Request) -> JSONResponse:
         context_refs=body.get("context_refs") or [],
         ttl_days=int(body.get("ttl_days", 14)),
         workflow_mode=body.get("workflow_mode", "auto"),
-        originating_task_id=body.get('originating_task_id'),
-        lineage=body.get('lineage'),
+        originating_task_id=body.get("originating_task_id"),
+        lineage=body.get("lineage"),
         queue_dir=QUEUE_DIR,
     )
     return _control_response(_with_cockpit_url(result))
@@ -887,7 +946,10 @@ async def http_get_task(request: Request) -> JSONResponse:
     # {"ok": False, ...} on failure — mirror that split into the HTTP status.
     if result.get("ok") is False:
         return _control_response(result)
-    return JSONResponse(_jsonable(_with_cockpit_url({**result, 'approval_fingerprint': fingerprint(result)})), status_code=200)
+    return JSONResponse(
+        _jsonable(_with_cockpit_url({**result, "approval_fingerprint": fingerprint(result)})),
+        status_code=200,
+    )
 
 
 @mcp.custom_route("/queue/summary", methods=["GET"])
