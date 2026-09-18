@@ -5,8 +5,8 @@ WORKDIR /app
 # Create non-root user matching host UID 1000 (ted)
 RUN groupadd -g 1000 ted && useradd -u 1000 -g 1000 -s /sbin/nologin -M ted
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY --chown=1000:1000 src/ ./src/
 RUN chmod -R u+rX /app/src

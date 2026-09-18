@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import yaml
+from src.lineage import validate as validate_lineage, fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,7 @@ def submit_task_handler(
     workflow_mode: str = "semi-auto",
     originating_task_id: str | None = None,
     queue_dir: str | None = None,
+    lineage: dict | None = None,
 ) -> dict:
     if context_refs is None:
         context_refs = []
@@ -280,6 +282,19 @@ def submit_task_handler(
         if err:
             return {"ok": False, "error": err}
 
+    try:
+        lineage = validate_lineage(lineage)
+        if originating_task_id:
+            parent = get_task_handler(task_id=originating_task_id, queue_dir=queue_dir)
+            inherited = (parent.get('payload') or {}).get('lineage')
+            if inherited and parent.get('target_agent') == source_agent:
+                inherited = validate_lineage(inherited)
+                if lineage and any(lineage[k] != inherited[k] for k in ('ticket_id', 'project')):
+                    raise ValueError('Follow-up lineage conflicts with the parent ticket')
+                lineage = lineage or inherited
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
+
     task_id = str(uuid.uuid4())
     now = _now()
     slug = task_id[:8]
@@ -293,6 +308,8 @@ def submit_task_handler(
     }
     if originating_task_id is not None:
         payload["originating_task_id"] = originating_task_id
+    if lineage:
+        payload['lineage'] = lineage
 
     task = {
         "id": task_id,
@@ -744,6 +761,7 @@ def set_task_status_handler(
     queue_dir: str | None = None,
     enforce_ownership: bool = False,
     execution_model: str | None = None,
+    expected_fingerprint: str | None = None,
 ) -> dict:
     """
     Operator-facing status change. Broader than update_task but audited and bounded:
@@ -792,6 +810,13 @@ def set_task_status_handler(
 
         if task is None:
             return {"ok": False, "error": "not found"}
+
+        if expected_fingerprint is not None and (
+            actor != OPERATOR_ACTOR or status != 'approved'
+            or not isinstance(expected_fingerprint, str)
+            or expected_fingerprint != fingerprint(task)
+        ):
+            return {'ok': False, 'error': 'Task changed after review; reload before approving'}
 
         if _is_archived_path(task.get("_path", ""), queue_dir):
             return {"ok": False, "error": "task is archived and cannot be updated"}

@@ -21,6 +21,7 @@ from src.auth import (
     require_operator_surface,
 )
 from src.tools import tickets
+from src.lineage import fingerprint
 from src.tools.queue import (
     NON_TERMINAL_STATUSES,
     OPERATOR_ACTOR,
@@ -177,6 +178,7 @@ def submit_task(
     ttl_days: int = 30,
     workflow_mode: str = "semi-auto",
     originating_task_id: str | None = None,
+    lineage: dict | None = None,
 ) -> dict:
     """
     Submit a new task to the queue.
@@ -216,6 +218,7 @@ def submit_task(
         ttl_days=ttl_days,
         workflow_mode=workflow_mode,
         originating_task_id=originating_task_id,
+        lineage=lineage,
         queue_dir=QUEUE_DIR,
     ))
 
@@ -677,6 +680,7 @@ async def http_approve(request: Request) -> JSONResponse:
         actor=OPERATOR_ACTOR,
         note=body.get("note", ""),
         execution_model=body.get("execution_model"),
+        expected_fingerprint=body.get('expected_fingerprint'),
         queue_dir=QUEUE_DIR,
     )
     return _control_response(result)
@@ -854,7 +858,8 @@ async def http_submit(request: Request) -> JSONResponse:
         context_refs=body.get("context_refs") or [],
         ttl_days=int(body.get("ttl_days", 14)),
         workflow_mode=body.get("workflow_mode", "auto"),
-        originating_task_id=None,
+        originating_task_id=body.get('originating_task_id'),
+        lineage=body.get('lineage'),
         queue_dir=QUEUE_DIR,
     )
     return _control_response(_with_cockpit_url(result))
@@ -882,7 +887,7 @@ async def http_get_task(request: Request) -> JSONResponse:
     # {"ok": False, ...} on failure — mirror that split into the HTTP status.
     if result.get("ok") is False:
         return _control_response(result)
-    return JSONResponse(_jsonable(_with_cockpit_url(result)), status_code=200)
+    return JSONResponse(_jsonable(_with_cockpit_url({**result, 'approval_fingerprint': fingerprint(result)})), status_code=200)
 
 
 @mcp.custom_route("/queue/summary", methods=["GET"])

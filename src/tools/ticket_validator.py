@@ -11,12 +11,27 @@ Ticket-Text ist Kundeneingabe: er wird geprueft, niemals als Anweisung ausgefueh
 """
 import re
 
+# File names alone are not an extraction request. Quoting a dangerous request
+# never exempts it: all rules inspect the full text.
+_GEHEIM_ZIEL = (r"\.env\b|env[- ]?datei|\.htpasswd|secrets?[- ]?(datei|file)|\bsecrets?\b|"
+                r"api[- ]?(key|token|schl(ue|[uü])ssel)s?|access[- ]?token|client[- ]?secret|\btokens?\b|"
+                r"passw\w*|\bkennw\w*|zugangs(daten|datei|schl(ue|[uü])ssel)|credentials?|\bschl(ue|[uü])ssel\b")
+_GEHEIM_VERB = (r"zeig\w*|anzeig\w*|ausles\w*|auszulesen|lies\b|lesen\b|ausgeb\w*|auszugeben|"
+                r"gib\b|geben\b|nenn\w*|verrat\w*|schick\w*|send\w*|mail\w*|poste\w*|"
+                r"export\w*|dump\w*|kopier\w*|[uü]bermittel\w*|weitergeb\w*|inhalt\w*|cat\b|"
+                r"show\w*|display\w*|print\w*|reveal\w*|leak\w*|paste\w*|give\b|contents?\b|echo\b")
+# Bis zu fuenf Woerter Abstand, beide Richtungen: Verb vor Ziel und Ziel vor Verb.
+_NAH = r"(?:\W+\w+){0,5}\W+"
+GEHEIM_MUSTER = (rf"(?:{_GEHEIM_VERB}){_NAH}(?:{_GEHEIM_ZIEL})"
+                 rf"|(?:{_GEHEIM_ZIEL}){_NAH}(?:{_GEHEIM_VERB})")
+
+
 # Harte Grenzen: Muster -> Grund. Wortgrenzen bewusst locker (deutsch/englisch, Flexion).
 HART = [
     (r"\b(als|as)\s+root\b|\broot[- ]?(zugang|zugriff|access|rechte|shell|passwor)|\bsudo\b|\bsu\s+-\b", "Root/Sudo-Zugriff"),
     (r"docker\.sock|/var/run/docker|--privileged|\bprivileged\b|cap[_-]?add|host[- ]?mount|/etc/shadow|/etc/passwd", "Container-Ausbruch / Host-Zugriff"),
     (r"authorized_keys|id_(rsa|ed25519)|ssh[- ]?(key|schl[uü]ssel)|private[- ]?key|privater schl[uü]ssel", "SSH-Schluessel"),
-    (r"\.env\b|secret[s]?\s*(datei|file|anzeigen|auslesen|zeigen|schicken)|api[- ]?(key|token)s?\s*(anzeigen|auslesen|zeigen|schicken|senden|geben|mir)|(passw(o|ö)rt|password|token|zugangsdaten)\w*\s*(anzeigen|auslesen|ausgeben|zeigen|schicken|senden|exportieren|mir geben)|zeig\w*\s+(mir\s+)?(das|alle|die)\s+(passw|token|secret|zugangsdaten)", "Geheimnisse auslesen"),
+    (GEHEIM_MUSTER, "Geheimnisse auslesen"),
     (r"chmod\s+777|chown\s+-R\s+root|iptables|\bufw\b|firewall\s+(aus|deaktiv|abschalt|disable)|fail2ban\s+(aus|deaktiv|disable)", "Netz-/Rechte-Haertung aufheben"),
     (r"(sso|auth\w*|w[aä]chter|guard|2fa|zwei-faktor|single[- ]sign[- ]on)\s*\w*\s*(deaktivier|abschalt|umgeh|aushebel|bypass|disable)|(deaktivier|abschalt|umgeh|aushebel|bypass|disable)\w*\s+(?:\w+\s+){0,2}(sso|auth\w*|2fa|w[aä]chter|guard)\b|ohne\s+(passwort|anmeldung)\s+(zugriff|zugang|admin)|admin[- ]?(zugang|rechte|konto)\s+(f[uü]r\s+mich|geben|anlegen|erstellen)", "Authentifizierung umgehen"),
     (r"rm\s+-rf|drop\s+(database|table)|truncate\s+table|alle\s+(daten|backups?|kunden(daten)?)\s+(l[oö]sch|entfern|vernicht)|backups?\s+(l[oö]sch|deaktivier|abschalt)|volumes?\s+l[oö]sch", "Zerstoerende Operation"),
