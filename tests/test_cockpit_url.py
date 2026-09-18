@@ -36,10 +36,17 @@ def client(env):
 
 
 def _submit(client):
-    r = client.post("/tasks/submit", headers=AUTH, json={
-        "source_agent": "doctor", "target_agent": "developer",
-        "task_type": "fix", "summary": "s", "description": "d",
-    })
+    r = client.post(
+        "/tasks/submit",
+        headers=AUTH,
+        json={
+            "source_agent": "doctor",
+            "target_agent": "developer",
+            "task_type": "fix",
+            "summary": "s",
+            "description": "d",
+        },
+    )
     assert r.status_code == 200
     return r.json()
 
@@ -64,10 +71,17 @@ def test_unset_env_means_no_field(tmp_path, monkeypatch):
     monkeypatch.setattr(srv, "QUEUE_DIR", str(tmp_path))
     monkeypatch.setenv("TASK_QUEUE_API_SECRET", SECRET)
     with TestClient(srv.mcp.http_app()) as c:
-        r = c.post("/tasks/submit", headers=AUTH, json={
-            "source_agent": "doctor", "target_agent": "developer",
-            "task_type": "fix", "summary": "s", "description": "d",
-        })
+        r = c.post(
+            "/tasks/submit",
+            headers=AUTH,
+            json={
+                "source_agent": "doctor",
+                "target_agent": "developer",
+                "task_type": "fix",
+                "summary": "s",
+                "description": "d",
+            },
+        )
         assert r.status_code == 200
         assert "cockpit_url" not in r.json()
 

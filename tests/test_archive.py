@@ -133,7 +133,7 @@ def test_sweep_days_zero_is_a_noop(tmp_path):
 
 def test_sweep_uses_last_activity_not_created(tmp_path):
     """A task created long ago but touched recently stays: max(history) wins."""
-    task_id, path = _seed(tmp_path, status="completed", age_days=30)
+    _task_id, path = _seed(tmp_path, status="completed", age_days=30)
     with open(path) as f:
         data = yaml.safe_load(f)
     data["history"].append(
@@ -225,9 +225,12 @@ def test_http_archive_route_requires_secret(client, env):
     task_id, path = _seed(tmp_path, status="completed")
 
     assert client.post(f"/tasks/{task_id}/archive").status_code == 401
-    assert client.post(
-        f"/tasks/{task_id}/archive", headers={"X-Task-Queue-Secret": "wrong"}
-    ).status_code == 401
+    assert (
+        client.post(
+            f"/tasks/{task_id}/archive", headers={"X-Task-Queue-Secret": "wrong"}
+        ).status_code
+        == 401
+    )
     assert path.exists()
 
 

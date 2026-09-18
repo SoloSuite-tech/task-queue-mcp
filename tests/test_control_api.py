@@ -477,22 +477,80 @@ def test_get_task_does_not_mutate(env, client):
     after = get_task_handler(tid, queue_dir=str(tmp))
     assert before == after
 
-@pytest.mark.parametrize('model', ['claude-opus-5', 'gpt-6-astra', 'claude-fable-5-1'])
+
+@pytest.mark.parametrize("model", ["claude-opus-5", "gpt-6-astra", "claude-fable-5-1"])
 def test_operator_model_choice_persists_in_approval_history(client, env, model):
     _, directory = env
     task_id = _seed(directory)
-    response = client.post(f'/tasks/{task_id}/approve', headers=AUTH, json={'execution_model': model})
+    response = client.post(
+        f"/tasks/{task_id}/approve", headers=AUTH, json={"execution_model": model}
+    )
     assert response.status_code == 200
     task = get_task_handler(task_id=task_id, queue_dir=str(directory))
-    assert task['history'][-1]['execution_model'] == model
-    assert task['history'][-1]['actor'] == 'operator'
+    assert task["history"][-1]["execution_model"] == model
+    assert task["history"][-1]["actor"] == "operator"
 
 
 def test_untrusted_or_unknown_model_does_not_approve(client, env):
     _, directory = env
     task_id = _seed(directory)
-    response = client.post(f'/tasks/{task_id}/approve', json={'execution_model': 'claude-fable-5-1'})
+    response = client.post(
+        f"/tasks/{task_id}/approve", json={"execution_model": "claude-fable-5-1"}
+    )
     assert response.status_code == 401
-    response = client.post(f'/tasks/{task_id}/approve', headers=AUTH, json={'execution_model': 'fake'})
+    response = client.post(
+        f"/tasks/{task_id}/approve", headers=AUTH, json={"execution_model": "fake"}
+    )
     assert response.status_code != 200
-    assert get_task_handler(task_id=task_id, queue_dir=str(directory))['status'] == 'submitted'
+    assert get_task_handler(task_id=task_id, queue_dir=str(directory))["status"] == "submitted"
+
+
+def test_http_approval_binds_reviewed_payload_and_retains_ticket_lineage(env, client):
+    body = {
+        "source_agent": "leitstand:planung",
+        "target_agent": "release-planner",
+        "task_type": "research",
+        "summary": "Reviewed plan",
+        "description": "Plan only",
+        "requires_approval": True,
+        "lineage": {"ticket_id": 62, "project": "schlagbaum"},
+    }
+    created = client.post("/tasks/submit", headers=AUTH, json=body)
+    assert created.status_code == 200
+    tid = created.json()["task_id"]
+    reviewed = client.get(f"/tasks/{tid}", headers=AUTH).json()
+    assert reviewed["payload"]["lineage"] == body["lineage"]
+    assert len(reviewed["approval_fingerprint"]) == 64
+    assert (
+        client.post(
+            f"/tasks/{tid}/approve", json={"expected_fingerprint": reviewed["approval_fingerprint"]}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/tasks/{tid}/amend", headers=AUTH, json={"amendment": "Changed scope"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/tasks/{tid}/approve",
+            headers=AUTH,
+            json={"expected_fingerprint": reviewed["approval_fingerprint"]},
+        ).status_code
+        == 400
+    )
+    current = client.get(f"/tasks/{tid}", headers=AUTH).json()
+    assert current["status"] == "submitted"
+    assert (
+        client.post(
+            f"/tasks/{tid}/approve",
+            headers=AUTH,
+            json={
+                "expected_fingerprint": current["approval_fingerprint"],
+                "note": "[leitstand:tobi] exact review",
+            },
+        ).status_code
+        == 200
+    )

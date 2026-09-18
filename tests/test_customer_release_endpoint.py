@@ -1,11 +1,11 @@
 """Exercise the actual broker-only HTTP transition against temporary queue files."""
+
 import importlib
 
 import pytest
 from starlette.testclient import TestClient
 
 from src.tools.queue import get_task_handler
-
 
 MARKER = "customer-release:parker:46:" + "a" * 64 + ":" + "b" * 64
 OPERATOR_HEADERS = {"X-Task-Queue-Secret": "operator-test-secret"}
@@ -25,9 +25,15 @@ def release_client(tmp_path, monkeypatch):
 
 
 def submit(client, **changes):
-    body = dict(source_agent="tickets:umsetzung", target_agent="frontend-developer",
-                task_type="deploy", summary="Customer release", description=MARKER,
-                requires_approval=False, workflow_mode="auto")
+    body = dict(
+        source_agent="tickets:umsetzung",
+        target_agent="frontend-developer",
+        task_type="deploy",
+        summary="Customer release",
+        description=MARKER,
+        requires_approval=False,
+        workflow_mode="auto",
+    )
     body.update(changes)
     response = client.post("/tasks/submit", headers=OPERATOR_HEADERS, json=body)
     assert response.status_code == 200, response.text
@@ -40,8 +46,11 @@ def task(queue, task_id):
 
 
 def approve(client, task_id, headers=BROKER_HEADERS, marker=MARKER):
-    return client.post(f"/tasks/{task_id}/customer-release-approve", headers=headers,
-                       json={"authorization": marker})
+    return client.post(
+        f"/tasks/{task_id}/customer-release-approve",
+        headers=headers,
+        json={"authorization": marker},
+    )
 
 
 def test_customer_release_http_submit_approve_and_replay(release_client):
@@ -54,8 +63,9 @@ def test_customer_release_http_submit_approve_and_replay(release_client):
     approved = task(queue, task_id)
     assert approved["status"] == "approved"
     assert approved["history"][-1]["actor"] == "customer-release"
-    assert not any(h["actor"] == "operator" and h["status"] == "approved"
-                   for h in approved["history"])
+    assert not any(
+        h["actor"] == "operator" and h["status"] == "approved" for h in approved["history"]
+    )
     # The broker reconciles an already-approved task; replay never grants a
     # second approval or replaces its audited customer decision.
     replay = approve(client, task_id)
@@ -63,7 +73,9 @@ def test_customer_release_http_submit_approve_and_replay(release_client):
     assert task(queue, task_id) == approved
 
 
-@pytest.mark.parametrize("headers", [{}, {"X-Customer-Release-Queue-Secret": "wrong"}, OPERATOR_HEADERS])
+@pytest.mark.parametrize(
+    "headers", [{}, {"X-Customer-Release-Queue-Secret": "wrong"}, OPERATOR_HEADERS]
+)
 def test_only_dedicated_broker_secret_can_approve(release_client, headers):
     client, queue = release_client
     task_id = submit(client)
@@ -84,7 +96,10 @@ def test_forged_scope_cannot_approve(release_client, marker):
     assert task(queue, task_id) == before
 
 
-@pytest.mark.parametrize("changes", [{"source_agent": "administrator"}, {"task_type": "build"}, {"requires_approval": True}])
+@pytest.mark.parametrize(
+    "changes",
+    [{"source_agent": "administrator"}, {"task_type": "build"}, {"requires_approval": True}],
+)
 def test_operator_managed_task_cannot_use_customer_transition(release_client, changes):
     client, queue = release_client
     task_id = submit(client, **changes)
@@ -98,8 +113,11 @@ def test_cancelled_task_cannot_be_revived_by_customer_replay(release_client):
     client, queue = release_client
     task_id = submit(client)
     assert approve(client, task_id).json()["ok"]
-    cancelled = client.post(f"/tasks/{task_id}/cancel", headers=OPERATOR_HEADERS,
-                            json={"note": "Operator stopped this release"})
+    cancelled = client.post(
+        f"/tasks/{task_id}/cancel",
+        headers=OPERATOR_HEADERS,
+        json={"note": "Operator stopped this release"},
+    )
     assert cancelled.json()["ok"], cancelled.text
     before = task(queue, task_id)
     assert before["status"] == "cancelled"

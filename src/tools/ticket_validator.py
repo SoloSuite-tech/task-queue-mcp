@@ -9,46 +9,185 @@ Laeuft VOR jeder Bewertung. Ergebnis ist ein Befund mit Urteil:
   OK      — nichts Auffaelliges; normale Bewertung.
 Ticket-Text ist Kundeneingabe: er wird geprueft, niemals als Anweisung ausgefuehrt.
 """
+
 import re
+
+# File names alone are not an extraction request. Quoting a dangerous request
+# never exempts it: all rules inspect the full text.
+_GEHEIM_ZIEL = (
+    r"\.env\b|env[- ]?datei|\.htpasswd|secrets?[- ]?(datei|file)|\bsecrets?\b|"
+    r"api[- ]?(key|token|schl(ue|[uü])ssel)s?|access[- ]?token|client[- ]?secret|\btokens?\b|"
+    r"passw\w*|\bkennw\w*|zugangs(daten|datei|schl(ue|[uü])ssel)|credentials?|\bschl(ue|[uü])ssel\b"
+)
+_GEHEIM_VERB = (
+    r"zeig\w*|anzeig\w*|ausles\w*|auszulesen|lies\b|lesen\b|ausgeb\w*|auszugeben|"
+    r"gib\b|geben\b|nenn\w*|verrat\w*|schick\w*|send\w*|mail\w*|poste\w*|"
+    r"export\w*|dump\w*|kopier\w*|[uü]bermittel\w*|weitergeb\w*|inhalt\w*|cat\b|"
+    r"show\w*|display\w*|print\w*|reveal\w*|leak\w*|paste\w*|give\b|contents?\b|echo\b"
+)
+# Bis zu fuenf Woerter Abstand, beide Richtungen: Verb vor Ziel und Ziel vor Verb.
+_NAH = r"(?:\W+\w+){0,5}\W+"
+GEHEIM_MUSTER = (
+    rf"(?:{_GEHEIM_VERB}){_NAH}(?:{_GEHEIM_ZIEL})"
+    rf"|(?:{_GEHEIM_ZIEL}){_NAH}(?:{_GEHEIM_VERB})"
+)
+
 
 # Harte Grenzen: Muster -> Grund. Wortgrenzen bewusst locker (deutsch/englisch, Flexion).
 HART = [
-    (r"\b(als|as)\s+root\b|\broot[- ]?(zugang|zugriff|access|rechte|shell|passwor)|\bsudo\b|\bsu\s+-\b", "Root/Sudo-Zugriff"),
-    (r"docker\.sock|/var/run/docker|--privileged|\bprivileged\b|cap[_-]?add|host[- ]?mount|/etc/shadow|/etc/passwd", "Container-Ausbruch / Host-Zugriff"),
-    (r"authorized_keys|id_(rsa|ed25519)|ssh[- ]?(key|schl[uü]ssel)|private[- ]?key|privater schl[uü]ssel", "SSH-Schluessel"),
-    (r"\.env\b|secret[s]?\s*(datei|file|anzeigen|auslesen|zeigen|schicken)|api[- ]?(key|token)s?\s*(anzeigen|auslesen|zeigen|schicken|senden|geben|mir)|(passw(o|ö)rt|password|token|zugangsdaten)\w*\s*(anzeigen|auslesen|ausgeben|zeigen|schicken|senden|exportieren|mir geben)|zeig\w*\s+(mir\s+)?(das|alle|die)\s+(passw|token|secret|zugangsdaten)", "Geheimnisse auslesen"),
-    (r"chmod\s+777|chown\s+-R\s+root|iptables|\bufw\b|firewall\s+(aus|deaktiv|abschalt|disable)|fail2ban\s+(aus|deaktiv|disable)", "Netz-/Rechte-Haertung aufheben"),
-    (r"(sso|auth\w*|w[aä]chter|guard|2fa|zwei-faktor|single[- ]sign[- ]on)\s*\w*\s*(deaktivier|abschalt|umgeh|aushebel|bypass|disable)|(deaktivier|abschalt|umgeh|aushebel|bypass|disable)\w*\s+(?:\w+\s+){0,2}(sso|auth\w*|2fa|w[aä]chter|guard)\b|ohne\s+(passwort|anmeldung)\s+(zugriff|zugang|admin)|admin[- ]?(zugang|rechte|konto)\s+(f[uü]r\s+mich|geben|anlegen|erstellen)", "Authentifizierung umgehen"),
-    (r"rm\s+-rf|drop\s+(database|table)|truncate\s+table|alle\s+(daten|backups?|kunden(daten)?)\s+(l[oö]sch|entfern|vernicht)|backups?\s+(l[oö]sch|deaktivier|abschalt)|volumes?\s+l[oö]sch", "Zerstoerende Operation"),
-    (r"(curl|wget)[^\n|]*\|\s*(ba)?sh\b|base64\s+-d|eval\(|reverse[- ]?shell|nc\s+-e|/dev/tcp/|xmrig|min(er|ing)\b|krypto[- ]?min", "Fremdcode / Mining / Shell"),
-    (r"(ignor|vergiss|forget|disregard|missachte)\w*\s+(?:\w+\s+){0,3}(anweisung|instruktion|instruction|regeln|rules|system\s*prompt|leitplanken|guardrails)|du\s+bist\s+jetzt|you\s+are\s+now|jailbreak|developer\s+mode|act\s+as\s+(root|admin)", "Prompt-Injection"),
-    (r"(anderer|andere|fremde[rn]?)\s+(kunde|mandant|tenant|server|deployment)|kundendaten\s+(von|anderer)|alle\s+mandanten", "Mandantengrenze"),
+    (
+        "\\b(als|as)\\s+root\\b|\\broot[- ]?(zugang|zugrif"
+        "f|access|rechte|shell|passwor)|\\bsudo\\b|\\bsu\\"
+        "s+-\\b",
+        "Root/Sudo-Zugriff",
+    ),
+    (
+        "docker\\.sock|/var/run/docker|--privileged|\\bp"
+        "rivileged\\b|cap[_-]?add|host[- ]?mount|/etc/s"
+        "hadow|/etc/passwd",
+        "Container-Ausbruch / Host-Zugriff",
+    ),
+    (
+        "authorized_keys|id_(rsa|ed25519)|ssh[- ]?(key"
+        "|schl[uü]ssel)|private[- ]?key|privater schl["
+        "uü]ssel",
+        "SSH-Schluessel",
+    ),
+    (GEHEIM_MUSTER, "Geheimnisse auslesen"),
+    (
+        "chmod\\s+777|chown\\s+-R\\s+root|iptables|\\bufw\\"
+        "b|firewall\\s+(aus|deaktiv|abschalt|disable)|f"
+        "ail2ban\\s+(aus|deaktiv|disable)",
+        "Netz-/Rechte-Haertung aufheben",
+    ),
+    (
+        "(sso|auth\\w*|w[aä]chter|guard|2fa|zwei-faktor"
+        "|single[- ]sign[- ]on)\\s*\\w*\\s*(deaktivier|ab"
+        "schalt|umgeh|aushebel|bypass|disable)|(deakti"
+        "vier|abschalt|umgeh|aushebel|bypass|disable)\\"
+        "w*\\s+(?:\\w+\\s+){0,2}(sso|auth\\w*|2fa|w[aä]cht"
+        "er|guard)\\b|ohne\\s+(passwort|anmeldung)\\s+(zu"
+        "griff|zugang|admin)|admin[- ]?(zugang|rechte|"
+        "konto)\\s+(f[uü]r\\s+mich|geben|anlegen|erstell"
+        "en)",
+        "Authentifizierung umgehen",
+    ),
+    (
+        "rm\\s+-rf|drop\\s+(database|table)|truncate\\s+t"
+        "able|alle\\s+(daten|backups?|kunden(daten)?)\\s"
+        "+(l[oö]sch|entfern|vernicht)|backups?\\s+(l[oö"
+        "]sch|deaktivier|abschalt)|volumes?\\s+l[oö]sch",
+        "Zerstoerende Operation",
+    ),
+    (
+        "(curl|wget)[^\\n|]*\\|\\s*(ba)?sh\\b|base64\\s+-d|"
+        "eval\\(|reverse[- ]?shell|nc\\s+-e|/dev/tcp/|xm"
+        "rig|min(er|ing)\\b|krypto[- ]?min",
+        "Fremdcode / Mining / Shell",
+    ),
+    (
+        "(ignor|vergiss|forget|disregard|missachte)\\w*"
+        "\\s+(?:\\w+\\s+){0,3}(anweisung|instruktion|inst"
+        "ruction|regeln|rules|system\\s*prompt|leitplan"
+        "ken|guardrails)|du\\s+bist\\s+jetzt|you\\s+are\\s"
+        "+now|jailbreak|developer\\s+mode|act\\s+as\\s+(r"
+        "oot|admin)",
+        "Prompt-Injection",
+    ),
+    (
+        "(anderer|andere|fremde[rn]?)\\s+(kunde|mandant"
+        "|tenant|server|deployment)|kundendaten\\s+(von"
+        "|anderer)|alle\\s+mandanten",
+        "Mandantengrenze",
+    ),
 ]
 
 # Betriebs-/Architekturrelevanz: Bewertung ja, Freigabe nur durch Betreiber.
 REVIEW = [
     (r"kubernetes|\bk8s\b|openshift|nomad|\bswarm\b", "Fremde Orchestrierung (nicht im Stack)"),
-    (r"neue[rn]?\s+(server|vm|maschine|instanz|host)|zweite[rn]?\s+server|hetzner\s+cloud|aws|azure|gcp|google\s+cloud", "Neue Infrastruktur"),
-    (r"\bgpu\b|grafikkarte|cuda|llm\s+(lokal|selbst|hosten)|eigenes\s+modell\s+trainier|fine-?tun", "GPU/Modell-Hosting"),
-    (r"windows|\.net\s+framework|active\s+directory|exchange\s+server|sharepoint", "Nicht im Linux/Docker-Stack"),
-    (r"migration|migrier|umzug|umziehen|komplett\s+neu|neu\s+aufsetzen|rewrite|neuschreib|von\s+grund\s+auf|neues?\s+system|plattform\s+wechsel", "Architekturvorhaben"),
-    (r"\bdns\b|nameserver|domain\s+(umziehen|wechseln|kaufen|registrier)|zertifikat|\bssl\b|\btls\b", "DNS/Zertifikate (Betreiber)"),
-    (r"zahlung|payment|stripe|paypal|kreditkarte|rechnungs?stell|abrechnung|steuer", "Zahlungen/Finanzen"),
-    (r"dsgvo|gdpr|personenbezogen|gesundheitsdaten|auskunft|l[oö]schkonzept|export\s+aller\s+(nutzer|kontakte|daten)", "Datenschutz-relevant"),
-    (r"massen(mail|versand)|newsletter\s+an\s+alle|\d{3,}\s*(mails|e-mails|empf[aä]nger)|spam", "Massenversand / Reputation"),
-    (r"[oö]e?ffentlich|ohne\s+(login|anmeldung)|(login|anmeldung|passwort(schutz)?)\s+(?:\w+\s+){0,5}(entfern|weg|abschalt|deaktivier|raus)|f[uü]r\s+alle\s+sichtbar|\bpublic\b", "Oeffentliche Route / Login entfernen (Freigabe noetig)"),
-    (r"port\s+\d+\s+(freigeben|[oö]ffnen|expose)|firewall\s+regel|vpn|wireguard|tailscale", "Netzwerk/Ports"),
-    (r"cron|t[aä]glich\s+automatisch|scraper|crawl|bot\b|automatisch\s+\w+\s+(kaufen|buchen|posten)", "Automatisierung mit Aussenwirkung"),
+    (
+        "neue[rn]?\\s+(server|vm|maschine|instanz|host)"
+        "|zweite[rn]?\\s+server|hetzner\\s+cloud|aws|azu"
+        "re|gcp|google\\s+cloud",
+        "Neue Infrastruktur",
+    ),
+    (
+        "\\bgpu\\b|grafikkarte|cuda|llm\\s+(lokal|selbst|"
+        "hosten)|eigenes\\s+modell\\s+trainier|fine-?tun",
+        "GPU/Modell-Hosting",
+    ),
+    (
+        r"windows|\.net\s+framework|active\s+directory|exchange\s+server|sharepoint",
+        "Nicht im Linux/Docker-Stack",
+    ),
+    (
+        "migration|migrier|umzug|umziehen|komplett\\s+n"
+        "eu|neu\\s+aufsetzen|rewrite|neuschreib|von\\s+g"
+        "rund\\s+auf|neues?\\s+system|plattform\\s+wechse"
+        "l",
+        "Architekturvorhaben",
+    ),
+    (
+        "\\bdns\\b|nameserver|domain\\s+(umziehen|wechsel"
+        "n|kaufen|registrier)|zertifikat|\\bssl\\b|\\btls"
+        "\\b",
+        "DNS/Zertifikate (Betreiber)",
+    ),
+    (
+        r"zahlung|payment|stripe|paypal|kreditkarte|rechnungs?stell|abrechnung|steuer",
+        "Zahlungen/Finanzen",
+    ),
+    (
+        "dsgvo|gdpr|personenbezogen|gesundheitsdaten|a"
+        "uskunft|l[oö]schkonzept|export\\s+aller\\s+(nut"
+        "zer|kontakte|daten)",
+        "Datenschutz-relevant",
+    ),
+    (
+        r"massen(mail|versand)|newsletter\s+an\s+alle|\d{3,}\s*(mails|e-mails|empf[aä]nger)|spam",
+        "Massenversand / Reputation",
+    ),
+    (
+        "[oö]e?ffentlich|ohne\\s+(login|anmeldung)|(log"
+        "in|anmeldung|passwort(schutz)?)\\s+(?:\\w+\\s+){"
+        "0,5}(entfern|weg|abschalt|deaktivier|raus)|f["
+        "uü]r\\s+alle\\s+sichtbar|\\bpublic\\b",
+        "Oeffentliche Route / Login entfernen (Freigabe noetig)",
+    ),
+    (
+        r"port\s+\d+\s+(freigeben|[oö]ffnen|expose)|firewall\s+regel|vpn|wireguard|tailscale",
+        "Netzwerk/Ports",
+    ),
+    (
+        "cron|t[aä]glich\\s+automatisch|scraper|crawl|b"
+        "ot\\b|automatisch\\s+\\w+\\s+(kaufen|buchen|poste"
+        "n)",
+        "Automatisierung mit Aussenwirkung",
+    ),
     (r"alle\s+kunden|f[uü]r\s+jeden\s+kunden|plattformweit|global", "Plattformweite Aenderung"),
 ]
 
-STACK_HINWEIS = ("Stack je Deployment: Docker Compose, Caddy, Nextcloud, Mautic, Site (Python/Node), Postgres/MySQL, "
-                 "Mail via mxroute/Mailcow, App-Zone fuer eigene Compose-Apps (Linter: keine Host-Ports, kein Root-Zugriff, "
-                 "Speicherlimits). Nicht vorgesehen: Kubernetes, VMs, Windows, GPU, Fremd-Cloud, Host-Pakete.")
+STACK_HINWEIS = (
+    "Stack je Deployment: Docker Compose, Caddy, N"
+    "extcloud, Mautic, Site (Python/Node), Postgre"
+    "s/MySQL, "
+    "Mail via mxroute/Mailcow, App-Zone fuer eigen"
+    "e Compose-Apps (Linter: keine Host-Ports, kei"
+    "n Root-Zugriff, "
+    "Speicherlimits). Nicht vorgesehen: Kubernetes, VMs, Windows, GPU, Fremd-Cloud, Host-Pakete."
+)
 
 
 def _norm(text):
-    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
+    for a, b in (
+        ("ä", "ae"),
+        ("ö", "oe"),
+        ("ü", "ue"),
+        ("Ä", "Ae"),
+        ("Ö", "Oe"),
+        ("Ü", "Ue"),
+        ("ß", "ss"),
+    ):
         text = text.replace(a, b)
     return text
 
@@ -59,7 +198,14 @@ def _hits(text, regeln):
         for variante in (text, _norm(text)):
             m = re.search(muster, variante, re.I)
             if m:
-                out.append({"grund": grund, "fund": variante[max(0, m.start() - 40):m.end() + 40].replace("\n", " ").strip()})
+                out.append(
+                    {
+                        "grund": grund,
+                        "fund": variante[max(0, m.start() - 40) : m.end() + 40]
+                        .replace("\n", " ")
+                        .strip(),
+                    }
+                )
                 break
     return out
 
@@ -74,7 +220,11 @@ def groesse_hinweis(text, review_hits):
     score += 1 if punkte >= 4 else 0
     score += 1 if und >= 6 else 0
     score += min(2, len(review_hits))
-    return ["S", "M", "L", "XL", "XL", "XL", "XL"][min(score, 6)], {"woerter": woerter, "aufzaehlungen": punkte, "verknuepfungen": und}
+    return ["S", "M", "L", "XL", "XL", "XL", "XL"][min(score, 6)], {
+        "woerter": woerter,
+        "aufzaehlungen": punkte,
+        "verknuepfungen": und,
+    }
 
 
 def pruefen(subject, beschreibung, projekt=None, kapazitaet=None):
@@ -88,8 +238,14 @@ def pruefen(subject, beschreibung, projekt=None, kapazitaet=None):
             kap.append(f"wenig freier RAM auf {projekt}: {kapazitaet['ram_frei_mb']} MB")
         if kapazitaet.get("disk_frei_gb") is not None and kapazitaet["disk_frei_gb"] < 15:
             kap.append(f"wenig Platte auf {projekt}: {kapazitaet['disk_frei_gb']} GB frei")
-        if kapazitaet.get("load1") is not None and kapazitaet.get("cpus") and kapazitaet["load1"] > kapazitaet["cpus"] * 0.8:
-            kap.append(f"hohe Last auf {projekt}: load {kapazitaet['load1']} bei {kapazitaet['cpus']} CPUs")
+        if (
+            kapazitaet.get("load1") is not None
+            and kapazitaet.get("cpus")
+            and kapazitaet["load1"] > kapazitaet["cpus"] * 0.8
+        ):
+            kap.append(
+                f"hohe Last auf {projekt}: load {kapazitaet['load1']} bei {kapazitaet['cpus']} CPUs"
+            )
         if kapazitaet.get("swap_used_mb", 0) > 1024:
             kap.append(f"Swap in Benutzung auf {projekt}: {kapazitaet['swap_used_mb']} MB")
     if hart:
@@ -106,12 +262,31 @@ def pruefen(subject, beschreibung, projekt=None, kapazitaet=None):
         "groesse_hinweis": groesse,
         "masse": masse,
         "stack": STACK_HINWEIS,
-        "regel": ("BLOCK: nie bearbeiten, Empfehlung 'Nicht umsetzbar' oder Betreiber-Entscheidung, Risiko hoch. "
-                  "REVIEW/L/XL: bewerten, Empfehlung 'Betreiber-Entscheidung'. Freigabe (Bereit) setzt immer der Betreiber."),
+        "regel": (
+            "BLOCK: nie bearbeiten, Empfehlung 'Nicht umse"
+            "tzbar' oder Betreiber-Entscheidung, Risiko ho"
+            "ch. "
+            "REVIEW/L/XL: bewerten, Empfehlung 'Betreiber-"
+            "Entscheidung'. Freigabe (Bereit) setzt immer "
+            "der Betreiber."
+        ),
     }
 
 
 if __name__ == "__main__":
-    import json, sys
+    import json
+    import sys
+
     daten = json.load(sys.stdin)
-    print(json.dumps(pruefen(daten.get("subject", ""), daten.get("beschreibung", ""), daten.get("projekt"), daten.get("kapazitaet")), ensure_ascii=False, indent=1))
+    print(
+        json.dumps(
+            pruefen(
+                daten.get("subject", ""),
+                daten.get("beschreibung", ""),
+                daten.get("projekt"),
+                daten.get("kapazitaet"),
+            ),
+            ensure_ascii=False,
+            indent=1,
+        )
+    )
