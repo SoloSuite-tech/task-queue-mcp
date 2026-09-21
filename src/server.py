@@ -34,6 +34,7 @@ from src.tools.queue import (
     get_task_handler,
     list_tasks_handler,
     park_task_handler,
+    set_dispatch_state_handler,
     set_task_status_handler,
     submit_task_handler,
     sweep_archive,
@@ -795,6 +796,26 @@ async def http_amend(request: Request) -> JSONResponse:
         amendment=body.get("amendment", ""),
         actor=OPERATOR_ACTOR,
         reason=body.get("reason", ""),
+        queue_dir=QUEUE_DIR,
+    )
+    return _control_response(result)
+
+
+@mcp.custom_route("/tasks/{task_id}/dispatch-state", methods=["POST"])
+async def http_dispatch_state(request: Request) -> JSONResponse:
+    """
+    Control plane -> task: the machine-readable `dispatch:` block (state, reason_code,
+    reason, session_id, worker_exit, ...). Overwritable state, no history row — a
+    history entry would be read as a fresh approval by older control planes. Actor
+    is pinned to the operator like every other control route.
+    """
+    if not _authorized(request):
+        return _unauthorized()
+    body = await _json_body(request)
+    result = set_dispatch_state_handler(
+        task_id=request.path_params["task_id"],
+        actor=OPERATOR_ACTOR,
+        fields=body,
         queue_dir=QUEUE_DIR,
     )
     return _control_response(result)
