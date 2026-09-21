@@ -2,6 +2,7 @@ import fcntl
 import glob
 import logging
 import os
+import re
 import uuid
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
@@ -86,6 +87,22 @@ PARKED_FROM_KEY = "parked_from"
 # `submitted`/`pending-approval` have not been approved yet, and `routing-failed` is still
 # being retried by the dispatcher.
 AUTO_CLOSE_FROM_STATUSES = {"approved", "in-progress"}
+
+# Machine-readable dispatch state written by the control plane (agents-web) via the
+# operator control API. One overwritable block per task — NOT history: the control
+# plane's dispatchGeneration() reads every non-amend `approved`/operator history entry
+# as a fresh approval, so a history row here would restart a worker on old deployments.
+DISPATCH_KEY = "dispatch"
+DISPATCH_STATES = {"waiting", "running", "finished", "failed", "refused"}
+DISPATCH_REASON_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+MAX_DISPATCH_REASON_CHARS = 500
+_DISPATCH_TEXT_FIELDS = ("reason", "role", "user", "generation")
+_DISPATCH_TEXT_LIMITS = {
+    "reason": MAX_DISPATCH_REASON_CHARS,
+    "role": 64,
+    "user": 64,
+    "generation": 128,
+}
 
 # amend_task bounds. More than one or two amendments on a task is a signal to cancel and
 # re-queue rather than accrete — these are a backstop, not a budget.
@@ -1230,6 +1247,112 @@ def _remove_lock_file(queue_dir: str, task_id: str) -> None:
     archived — every path ends in the existing 'task is archived' refusal."""
     with suppress(FileNotFoundError):
         os.unlink(os.path.join(queue_dir, ".locks", f"{task_id}.lock"))
+
+
+def set_dispatch_state_handler(
+    task_id: str,
+    actor: str,
+    fields: dict,
+    queue_dir: str | None = None,
+) -> dict:
+    """
+    Merge a `dispatch:` block onto a task. Operator surface only (the control plane
+    calls it with the shared secret). Overwritable state, never history — see the note
+    at DISPATCH_KEY. Refused on terminal and archived tasks like every other mutation.
+
+    Server-owned bookkeeping: `attempts` counts transitions to `running`, resetting
+    when the approval generation changes; `last_attempt_at` and `updated_at` are set
+    here, not trusted from the caller.
+    """
+    if queue_dir is None:
+        queue_dir = os.environ.get("TASK_QUEUE_DIR", "/task-queue")
+
+    try:
+        uuid.UUID(task_id)
+    except ValueError:
+        return {"ok": False, "error": "invalid task_id format"}
+
+    if actor != OPERATOR_ACTOR:
+        return {"ok": False, "error": f"only {OPERATOR_ACTOR!r} may set dispatch state"}
+    if not isinstance(fields, dict):
+        return {"ok": False, "error": "fields must be an object"}
+
+    state = fields.get("state")
+    if state is not None and state not in DISPATCH_STATES:
+        return {"ok": False, "error": f"invalid dispatch state {state!r}"}
+    reason_code = fields.get("reason_code")
+    if reason_code is not None and (
+        not isinstance(reason_code, str) or not DISPATCH_REASON_RE.match(reason_code)
+    ):
+        return {"ok": False, "error": f"invalid reason_code {reason_code!r}"}
+    session_id = fields.get("session_id")
+    if session_id is not None:
+        try:
+            uuid.UUID(str(session_id))
+        except ValueError:
+            return {"ok": False, "error": "invalid session_id format"}
+    worker_exit = fields.get("worker_exit")
+    if worker_exit is not None and (
+        isinstance(worker_exit, bool) or not isinstance(worker_exit, int)
+    ):
+        return {"ok": False, "error": "worker_exit must be an integer or null"}
+
+    clean: dict = {}
+    if "state" in fields:
+        clean["state"] = state
+    if "reason_code" in fields:
+        clean["reason_code"] = reason_code
+    for key in _DISPATCH_TEXT_FIELDS:
+        if key in fields:
+            value = fields[key]
+            clean[key] = None if value is None else str(value)[: _DISPATCH_TEXT_LIMITS[key]]
+    if "session_id" in fields:
+        clean["session_id"] = None if session_id is None else str(session_id)
+    if "worker_exit" in fields:
+        clean["worker_exit"] = worker_exit
+    if "auth_problem" in fields:
+        clean["auth_problem"] = bool(fields["auth_problem"])
+
+    with _task_lock(queue_dir, task_id):
+        tasks = _load_all_tasks(queue_dir, include_archived=True)
+        task = next((t for t in tasks if t.get("id") == task_id), None)
+        if task is None:
+            return {"ok": False, "error": "not found"}
+        if _is_archived_path(task.get("_path", ""), queue_dir):
+            return {"ok": False, "error": "task is archived and cannot be updated"}
+        current_status = task.get("status")
+        if current_status in TERMINAL_STATUSES:
+            return {
+                "ok": False,
+                "error": f"Task is in terminal status {current_status!r} and cannot be updated",
+            }
+
+        block = task.get(DISPATCH_KEY)
+        if not isinstance(block, dict):
+            block = {}
+        previous_generation = block.get("generation")
+        block.update(clean)
+        if "generation" in clean and clean["generation"] != previous_generation:
+            block["attempts"] = 0
+        now = _now()
+        if state == "running":
+            block["attempts"] = int(block.get("attempts") or 0) + 1
+            block["last_attempt_at"] = now
+        block.setdefault("attempts", 0)
+        block["updated_at"] = now
+        task[DISPATCH_KEY] = block
+        _write_task_atomic(task["_path"], task)
+
+    logger.info(
+        "task.dispatch_state id=%s state=%s reason=%s attempts=%s",
+        task_id[:8],
+        block.get("state"),
+        block.get("reason_code"),
+        block.get("attempts"),
+    )
+    # YAML keeps datetimes; the HTTP response must be JSON-safe.
+    out = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in block.items()}
+    return {"ok": True, "task_id": task_id, DISPATCH_KEY: out}
 
 
 def archive_task_handler(task_id: str, actor: str, queue_dir: str | None = None) -> dict:
