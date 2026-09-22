@@ -442,6 +442,13 @@ if tickets.configured():
         (kein Mensch im Gespraech) direkt anlegen. Vorher ticket_list: gibt es den Fall
         schon, dort kommentieren (ticket_comment) statt ein zweites zu oeffnen.
 
+        NIEMALS ein Ticket fuer Arbeit, die du selbst auf der Testumgebung tun
+        kannst (Seite bauen, Inhalt aendern, App-Code anpassen, dort testen) —
+        die Schleife ist immer: Testumgebung -> Abnahme -> promote. Ein Ticket
+        umgeht sie nicht. Ist die Schleife selbst defekt (promote zieht nicht,
+        Testumgebung kaputt, Freigabe-Werkzeug fehlt), gehoert genau DAS ins
+        Ticket — die defekte Schleife, nicht die Aufgabe.
+
         titel: ein Satz, der das Problem benennt. beschreibung (>= 40 Zeichen): Befund —
         Werkzeug, Argumente, woertliche Antwort, Vermutung — und was der Betreiber tun
         muesste. art: aufgabe | fehler | feature. bereich: Apps | Frontend | Backend |
