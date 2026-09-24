@@ -1,6 +1,7 @@
 name: Queue security and lineage
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
