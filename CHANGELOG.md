@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-28
+
+### Fixed
+- **Guardrail "Mandantengrenze" matched a mention, not an access.** Platform-gap
+  tickets must state whether other deployments are affected; that sentence
+  ("ob andere Deployments dasselbe Muster haben") produced BLOCK and forced
+  "Nicht umsetzbar" (Leitstand #139, seen on bbp #137). The rule now requires an
+  access word (Zugriff, einloggen, lesen, exportieren, Daten, ...) within five
+  words of the foreign tenant, in either direction — same shape as the secrets
+  rule. The mere mention is a REVIEW finding ("Plattformweite Aenderung /
+  mitbetroffene Deployments"), so the operator still gates it. Moving to
+  another server is no longer BLOCK either (REVIEW via infrastructure rules).
+  `src/tools/ticket_validator.py`; the Leitstand ships a byte-identical copy and
+  its CI now fails on drift.
+
 ## [0.13.0] - 2026-09-27
 
 ### Added
