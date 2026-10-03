@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-02
+
+### Added
+- **Beglaubigte Herkunft eines `submit_task`-Aufrufs** (`src/origin.py`): Die
+  Kontrollebene legt beim Einrichten einer Sandbox einen signierten Nachweis
+  `v1.<konto>.<sandbox-rolle>.<mac>` in die `.mcp.json` der Rolle; der Server
+  liest ihn aus dem Header `X-Agent-Origin` und schreibt `submitted_by` und
+  `submitted_from_role` an den Task. Der Schluessel ist aus
+  `TASK_QUEUE_API_SECRET` abgeleitet (eigene Domain) — kein neues Secret, kein
+  neues Vertragsfeld. Ein Agent kann den Nachweis seiner eigenen Sandbox lesen,
+  aber keinen fuer ein anderes Konto bilden. Fehlt das Secret, gibt es keine
+  Herkunft; dann wird abgewiesen statt geraten.
+  `submitted_by` war im Task-Schema seit 0.12 vorgesehen und wurde nie gesetzt —
+  die Zustellung von Anhaengen musste das Konto raten (agents-stack #82).
+- **Betreiber-Route `/tasks/submit`** darf `submitted_by` und
+  `submitted_from_role` im Body nennen (Cockpit, Routinen); dort ersetzt das
+  Shared Secret die Signatur.
+
+### Changed
+- **`context_refs` werden auf Zustellbarkeit geprueft** (`src/tools/refs.py`).
+  Ein Verweis in einen Rollen-Arbeitsbereich (`/work/<ordner>/<datei>`) wird
+  angenommen, wenn die Herkunft beglaubigt ist — dann kopiert die Kontrollebene
+  die Datei in den Aufgaben-Ordner der Zielrolle. Ohne Herkunft, als
+  Verzeichnis, zu tief oder mit unzulaessigem Zeichen wird das Einreichen mit
+  einem verstaendlichen Satz ABGEWIESEN statt stillschweigend uebernommen.
+  Andere absolute Pfade (`/opt/...`, `/root/...`) bleiben erlaubt und bekommen
+  in der Antwort ein `hinweise`-Feld ("wird nur als Text im Prompt uebergeben");
+  `TASK_QUEUE_REFS_STRICT=1` weist auch sie ab.
+  Anlass: parker #157 (davor #112, solosuite #156) — fuenf Laeufe derselben
+  Aufgabe endeten an `Claude requested permissions to read from
+  /work/administrator/..., but you haven't granted it yet`, weil der Verweis nie
+  zustellbar war und niemand es sagte.
+
 ## [0.13.1] - 2026-09-28
 
 ### Fixed

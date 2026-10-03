@@ -48,7 +48,14 @@ submit_task(
 # → {"ok": true, "task_id": "<uuid>", "filename": "<timestamp>-<slug>.yml"}
 ```
 
-`context_refs` must be absolute paths. `risk_level` and `priority` are validated against allowlists. `workflow_mode` controls dispatcher behavior: `semi-auto` (default) queues the task for operator pickup with a Matrix notification, while `auto` triggers the dispatcher to launch the target agent headlessly. The server generates the UUID, sets `created`, and initializes the `retry_policy` stub.
+`context_refs` must be absolute paths, and since 0.14.0 they are checked for
+*deliverability*: a path in a role workspace (`/work/<folder>/<file>`) is accepted
+only when the call carries a signed origin (`X-Agent-Origin`, see `src/origin.py`),
+because only then does the control plane know which volume to copy from. Such a
+path is otherwise refused at submit time with a plain sentence instead of being
+accepted and silently unreadable in the target role's run (parker #157). Other
+absolute paths still pass and come back in a `hinweise` field saying they are
+passed as text only; `TASK_QUEUE_REFS_STRICT=1` refuses those too. `risk_level` and `priority` are validated against allowlists. `workflow_mode` controls dispatcher behavior: `semi-auto` (default) queues the task for operator pickup with a Matrix notification, while `auto` triggers the dispatcher to launch the target agent headlessly. The server generates the UUID, sets `created`, and initializes the `retry_policy` stub.
 
 #### Auto-close of the originating task (since v0.6.0)
 
