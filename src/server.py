@@ -21,6 +21,7 @@ from src.auth import (
     require_operator_surface,
 )
 from src.lineage import fingerprint
+from src.origin import ID_RE, origin_from_headers
 from src.tools import sicherheit, tickets
 from src.tools.isolation import role_submit_refusal
 from src.tools.queue import (
@@ -162,6 +163,20 @@ except AuthConfigError as exc:
 mcp = FastMCP("task-queue", lifespan=lifespan, auth=build_verifier(_agent_tokens))
 
 
+def _origin_der_sitzung() -> dict | None:
+    """Beglaubigte Herkunft aus den HTTP-Headern des laufenden MCP-Aufrufs.
+
+    get_http_headers() gibt es nur auf dem HTTP-Transport; auf stdio und in
+    Tests gibt es keine Herkunft — dann None, und /work-Verweise werden
+    abgewiesen statt geraten."""
+    try:
+        from fastmcp.server.dependencies import get_http_headers
+
+        return origin_from_headers(get_http_headers())
+    except Exception:  # kein Transport (stdio, Tests) -> keine Herkunft
+        return None
+
+
 @mcp.tool()
 def submit_task(
     source_agent: str,
@@ -185,7 +200,13 @@ def submit_task(
     risk_level: low | medium | high
     priority: normal | high | urgent
     workflow_mode: semi-auto | auto
-    context_refs: list of absolute paths relevant to this task
+    context_refs: list of absolute paths relevant to this task. Deliverable (the
+      control plane copies the file into the target role's task folder): a chat
+      attachment ~/.cloudcli/assets/<file> and, with a signed origin, a file in
+      your own workspace /work/<folder>/<file>. A /work path that cannot be
+      delivered is refused here instead of arriving unreadable; any other
+      absolute path is accepted and answered with a `hinweise` note that the
+      target role cannot open it.
     originating_task_id: UUID of the parent task. The dispatcher inherits its
       workflow_mode, and if that parent targets you and is approved or in-progress it is
       auto-closed as completed — submitting the return task IS closing the request.
@@ -209,8 +230,12 @@ def submit_task(
         logger.warning("submit_task: Isolations-Marker von %s abgelehnt", source_agent)
         return {"ok": False, "error": refusal}
 
+    # Herkunft der Sitzung (Konto + Sandbox-Rolle), signiert von der
+    # Kontrollebene — s. src/origin.py. Damit weiss die Zustellung, aus wessen
+    # Home ein Anhang (~/.cloudcli/assets/<name>) stammt (parker #157).
     return _with_cockpit_url(
         submit_task_handler(
+            origin=_origin_der_sitzung(),
             source_agent=source_agent,
             target_agent=target_agent,
             task_type=task_type,
@@ -972,6 +997,17 @@ async def http_archive(request: Request) -> JSONResponse:
     return _control_response(result)
 
 
+def _origin_aus_body(body: dict) -> dict | None:
+    """Herkunft aus dem Body der Betreiber-Route (submitted_by / submitted_from_role)."""
+    konto = str(body.get("submitted_by") or "").strip()
+    rolle = str(body.get("submitted_from_role") or "").strip()
+    # Beide Werte landen in einem Volume-Namen; die Kontrollebene prueft sie
+    # erneut, hier gilt dieselbe Form wie beim signierten Nachweis.
+    if not ID_RE.match(konto) or not ID_RE.match(rolle):
+        return None
+    return {"user": konto, "role": rolle}
+
+
 @mcp.custom_route("/tasks/submit", methods=["POST"])
 async def http_submit(request: Request) -> JSONResponse:
     """
@@ -1002,6 +1038,11 @@ async def http_submit(request: Request) -> JSONResponse:
         workflow_mode=body.get("workflow_mode", "auto"),
         originating_task_id=body.get("originating_task_id"),
         lineage=body.get("lineage"),
+        # Diese Route IST der Betreiber (Shared Secret). Nennt der Aufrufer
+        # Konto und Sandbox-Rolle des Einreichenden (Cockpit, Routinen), gilt
+        # das als Herkunft — hier braucht es keine Signatur, weil der Aufrufer
+        # schon mehr darf als jede Rolle.
+        origin=_origin_aus_body(body),
         queue_dir=QUEUE_DIR,
     )
     return _control_response(_with_cockpit_url(result))

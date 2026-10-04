@@ -11,6 +11,7 @@ import yaml
 
 from src.lineage import fingerprint
 from src.lineage import validate as validate_lineage
+from src.tools.refs import refs_pruefen
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +202,14 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _refs_strict() -> bool:
+    """TASK_QUEUE_REFS_STRICT=1: auch Pfade ausserhalb der zustellbaren Orte
+    (z. B. /opt/..., /root/...) werden beim Einreichen abgewiesen statt nur mit
+    einem Hinweis angenommen. Default aus — viele Rollen nennen Repo- und
+    Hostpfade bewusst als Textkontext, und das ist kein Anhang-Fehler."""
+    return os.environ.get("TASK_QUEUE_REFS_STRICT", "").strip() in {"1", "true", "yes"}
+
+
 def _validate_context_refs(context_refs: list) -> str | None:
     """Return an error string if any context_ref is invalid, else None."""
     for ref in context_refs:
@@ -243,6 +252,7 @@ def submit_task_handler(
     originating_task_id: str | None = None,
     queue_dir: str | None = None,
     lineage: dict | None = None,
+    origin: dict | None = None,
 ) -> dict:
     if context_refs is None:
         context_refs = []
@@ -296,8 +306,19 @@ def submit_task_handler(
                 "error": f"Invalid originating_task_id: {originating_task_id!r} — must be a UUID",
             }
 
+    hinweise: list[str] = []
     if context_refs:
         err = _validate_context_refs(context_refs)
+        if err:
+            return {"ok": False, "error": err}
+        # Zustellbarkeit entscheidet hier, nicht erst im Lauf der Zielrolle
+        # (parker #157): ein Verweis in einen Rollen-Arbeitsbereich ist nie
+        # zustellbar und wird abgewiesen (ein Uebergabeweg, agents-stack #128).
+        err, hinweise = refs_pruefen(
+            context_refs,
+            herkunft_bekannt=bool(origin and origin.get("user") and origin.get("role")),
+            strict=_refs_strict(),
+        )
         if err:
             return {"ok": False, "error": err}
 
@@ -340,6 +361,17 @@ def submit_task_handler(
         "requires_approval": requires_approval,
         "workflow_mode": workflow_mode,
         "status": "submitted",
+        # Herkunft des Einreichens, beglaubigt (src/origin.py) oder von der
+        # Betreiber-Route gesetzt — nie eine Agenten-Angabe. Die Kontrollebene
+        # kopiert Anhaenge ausschliesslich aus DIESEM Konto und Volume.
+        **(
+            {
+                "submitted_by": origin["user"],
+                "submitted_from_role": origin["role"],
+            }
+            if origin and origin.get("user") and origin.get("role")
+            else {}
+        ),
         "summary": summary,
         "ttl_days": ttl_days,
         "payload": payload,
@@ -365,6 +397,8 @@ def submit_task_handler(
     _write_task_atomic(path, task)
 
     result = {"ok": True, "task_id": task_id, "filename": filename}
+    if hinweise:
+        result["hinweise"] = hinweise
 
     # Fail-safe close of the parent request task. Runs after the write, and cannot fail it.
     if originating_task_id is not None:
