@@ -365,6 +365,49 @@ def test_sweep_closes_another_agents_task_and_records_both_names(env, client):
     assert entry["on_behalf_of"] == "developer"
 
 
+def test_a_swept_task_is_credited_to_the_agent_not_the_operator(env, client):
+    """
+    `completed_by` answers "whose work was this", not "who pushed the button".
+
+    The control routes always assert `operator`, so before agents-stack #117 a gate
+    closing an approval task recorded `completed_by: operator` with an empty output —
+    and anyone reading the queue saw the operator's own name against work the operator
+    never did. The history still records both names; this is the summary line.
+    """
+    _, tmp_path = env
+    tid = _seed(tmp_path, status="in-progress")
+
+    resp = client.post(
+        f"/tasks/{tid}/update",
+        headers=AUTH,
+        json={
+            "status": "completed",
+            "on_behalf_of": "developer",
+            "note": "email_update on production executed (mautic-live:email-13)",
+            "output": "email_update: email 13 changed",
+        },
+    )
+
+    assert resp.status_code == 200
+    task = get_task_handler(task_id=tid, queue_dir=str(tmp_path))
+    assert task["result"]["completed_by"] == "developer"
+    assert task["result"]["output"] == "email_update: email 13 changed"
+    assert task["history"][-1]["actor"] == "operator"
+    assert task["history"][-1]["on_behalf_of"] == "developer"
+
+
+def test_a_plain_operator_close_stays_the_operators(env, client):
+    """Without on_behalf_of nothing changes: the operator closed it in its own name."""
+    _, tmp_path = env
+    tid = _seed(tmp_path, status="in-progress")
+
+    resp = client.post(f"/tasks/{tid}/update", headers=AUTH, json={"status": "completed"})
+
+    assert resp.status_code == 200
+    task = get_task_handler(task_id=tid, queue_dir=str(tmp_path))
+    assert task["result"]["completed_by"] == "operator"
+
+
 def test_sweep_rejects_a_wrong_on_behalf_of(env, client):
     """
     Naming the wrong agent means the operator is closing a task they have misidentified.
