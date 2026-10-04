@@ -603,7 +603,14 @@ def update_task_handler(
         if status in {"completed", "failed"}:
             if task.get("result") is None:
                 task["result"] = {}
-            task["result"]["completed_by"] = actor
+            # Whose work this was, not who pushed the button. The control routes
+            # always assert `operator`, so a gate closing an approval task used to
+            # record `completed_by: operator` with the agent's name buried in the
+            # history — a reader of the queue saw the operator's own name against
+            # work the operator never did (agents-stack #117, schlagbaum 26.09.2026).
+            # `on_behalf_of` is already validated against target_agent above, so it
+            # is the honest answer where it is set; the history keeps both names.
+            task["result"]["completed_by"] = on_behalf_of or actor
             task["result"]["completed_at"] = now
             if output is not None:
                 task["result"]["output"] = output
