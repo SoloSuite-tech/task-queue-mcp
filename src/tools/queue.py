@@ -312,8 +312,8 @@ def submit_task_handler(
         if err:
             return {"ok": False, "error": err}
         # Zustellbarkeit entscheidet hier, nicht erst im Lauf der Zielrolle
-        # (parker #157): ein Verweis in einen Rollen-Arbeitsbereich ohne
-        # beglaubigte Herkunft ist nicht zustellbar und wird abgewiesen.
+        # (parker #157): ein Verweis in einen Rollen-Arbeitsbereich ist nie
+        # zustellbar und wird abgewiesen (ein Uebergabeweg, agents-stack #128).
         err, hinweise = refs_pruefen(
             context_refs,
             herkunft_bekannt=bool(origin and origin.get("user") and origin.get("role")),

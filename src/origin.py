@@ -1,9 +1,9 @@
 """
 Beglaubigte Herkunft eines submit_task-Aufrufs: welches Konto, welche Sandbox.
 
-Warum ueberhaupt. Soll die Kontrollebene eine Datei aus dem Arbeitsbereich der
-EINREICHENDEN Sandbox in den Aufgaben-Ordner der Zielrolle kopieren (parker
-#157), muss sie wissen, aus welchem Volume — ``<prefix>-agent-work-<konto>-<rolle>``.
+Warum ueberhaupt. Soll die Kontrollebene einen Anhang der EINREICHENDEN Sandbox
+(``~/.cloudcli/assets/<name>``, agents-stack #82/#128) in den Aufgaben-Ordner der
+Zielrolle kopieren (parker #157), muss sie wissen, aus wessen Home-Volume.
 Das Bearer-Token der Queue sagt das nicht: es gibt genau eines je Rolle, fuer
 alle Konten gemeinsam. Deshalb trug kein Task bisher ein ``submitted_by``, und
 die Zustellung konnte das Konto nur raten.
@@ -14,8 +14,8 @@ src/auth.py ablehnt. Dieser hier ist signiert: die Kontrollebene legt ihn beim
 Einrichten der Sandbox in die ``.mcp.json`` der Rolle, der Schluessel dafuer
 steht nur in der Kontrollebene und hier. Ein Agent kann den Wert seiner eigenen
 Sandbox lesen und weiterreichen — aber keinen fuer ein anderes Konto bilden. Und
-genau das ist die Grenze, die zaehlt: zugestellt wird nur aus dem Arbeitsbereich,
-in dem der Einreichende ohnehin schon lesen darf.
+genau das ist die Grenze, die zaehlt: zugestellt wird nur aus dem Home des
+Einreichenden, in dem er ohnehin schon lesen darf.
 
 Form:  ``v1.<konto>.<rolle>.<mac>``   — mac = HMAC-SHA256 ueber ``v1.<konto>.<rolle>``,
                                         128 Bit hex, Schluessel s. u.
@@ -23,8 +23,8 @@ Form:  ``v1.<konto>.<rolle>.<mac>``   — mac = HMAC-SHA256 ueber ``v1.<konto>.<
 Der Schluessel ist aus ``TASK_QUEUE_API_SECRET`` abgeleitet (eigene Domain, damit
 die Herkunfts-Signatur und das Betreiber-Secret nicht derselbe Wert sind) — kein
 neues Vertragsfeld in ``.env``, kein neues Geheimnis, das je Host verteilt werden
-muesste. Fehlt das Secret, gibt es keine beglaubigte Herkunft: dann werden
-``/work``-Verweise abgewiesen statt geraten (src/tools/refs.py).
+muesste. Fehlt das Secret, gibt es keine beglaubigte Herkunft; die Zustellung
+faellt dann auf den bisherigen Rueckfall (#82) zurueck.
 """
 
 import hmac

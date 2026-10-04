@@ -11,16 +11,19 @@ Prompt und lief damit fuenfmal gegen
 
 Der Pfad war also nie zustellbar, wurde aber stillschweigend uebernommen. Genau
 das endet hier: ein Verweis auf einen Rollen-Arbeitsbereich (`/work/...`) wird
-beim Einreichen entweder als zustellbar erkannt — dann holt die Kontrollebene
-die Datei in den Aufgaben-Ordner der Zielrolle — oder mit klarer Begruendung
-abgewiesen.
+beim Einreichen mit klarer Begruendung abgewiesen.
+
+Es gibt genau EINEN Uebergabeweg (Betreiberentscheidung, agents-stack #128):
+die Rolle kopiert die Datei nach ``~/.cloudcli/assets/<name>`` und nennt diesen
+Pfad. Volumes fremder Rollen liest die Kontrollebene nicht. Die beglaubigte
+Herkunft (``X-Agent-Origin``, src/origin.py) sagt der Kontrollebene, aus wessen
+Home-Volume der Anhang stammt.
 
 Drei Klassen:
 
 * ``asset``  — Chat-Anhang (``~/.cloudcli/assets/<datei>``). Zustellung seit #82.
-* ``work``   — Datei im Arbeitsbereich der einreichenden Sandbox. Zustellbar nur
-               mit beglaubigter Herkunft (``X-Agent-Origin``, src/origin.py):
-               ohne sie weiss niemand, aus welchem Volume kopiert werden darf.
+* ``work``   — Datei im Arbeitsbereich einer Rolle. Nie zustellbar; die
+               Abweisung nennt den Weg ueber ``~/.cloudcli/assets/<name>``.
 * ``other``  — jeder andere absolute Pfad (``/opt/...``, ``/root/...``). Bleibt
                erlaubt: viele Rollen nennen Repo- und Hostpfade bewusst als
                Textkontext. Die Antwort auf submit_task sagt aber, dass die
@@ -109,20 +112,13 @@ def refs_pruefen(
     for ref in context_refs:
         klasse, grund = classify_ref(ref)
         if klasse == WORK:
-            if grund:
-                return (
-                    f"context_ref {ref!r} kann der Zielrolle nicht zugestellt werden: "
-                    f"{grund}. Haenge die Datei im Chat an oder nenne einen Pfad der "
-                    "Form /work/<ordner>/<datei>."
-                ), hinweise
-            if not herkunft_bekannt:
-                return (
-                    f"context_ref {ref!r} liegt im Arbeitsbereich einer Rolle, und diese "
-                    "Sitzung weist ihre Herkunft nicht beglaubigt aus — die Datei koennte "
-                    "nur geraten werden. Lege sie in der Cloud ab und nenne den Cloud-Pfad, "
-                    "oder haenge sie im Chat an die Aufgabe."
-                ), hinweise
-            continue
+            # Ein Uebergabeweg (agents-stack #128): kein Lesen fremder Rollen-Volumes,
+            # auch nicht mit beglaubigter Herkunft.
+            return (
+                f"context_ref {ref!r} liegt im Arbeitsbereich einer Rolle und wird nicht "
+                "zugestellt. Kopiere die Datei nach ~/.cloudcli/assets/<name> und nenne "
+                "diesen Pfad."
+            ), hinweise
         if klasse == ASSET:
             if grund:
                 return f"context_ref {ref!r} ist kein zustellbarer Chat-Anhang: {grund}.", hinweise
@@ -133,11 +129,10 @@ def refs_pruefen(
         if strict:
             return (
                 f"context_ref {ref!r} ist kein zustellbarer Anhang (TASK_QUEUE_REFS_STRICT). "
-                "Zustellbar sind Chat-Anhaenge und Dateien unter /work/<ordner>/<datei>."
+                "Zustellbar sind nur Dateien unter ~/.cloudcli/assets/<name>."
             ), hinweise
         hinweise.append(
             f"{ref} wird nur als Text im Prompt uebergeben — die Zielrolle kann die Datei "
-            "nicht oeffnen. Zustellbar sind Chat-Anhaenge und Dateien aus dem eigenen "
-            "Arbeitsbereich (/work/<ordner>/<datei>)."
+            "nicht oeffnen. Zustellbar sind nur Dateien unter ~/.cloudcli/assets/<name>."
         )
     return None, hinweise

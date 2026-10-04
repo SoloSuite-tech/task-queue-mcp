@@ -24,11 +24,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **`context_refs` werden auf Zustellbarkeit geprueft** (`src/tools/refs.py`).
-  Ein Verweis in einen Rollen-Arbeitsbereich (`/work/<ordner>/<datei>`) wird
-  angenommen, wenn die Herkunft beglaubigt ist — dann kopiert die Kontrollebene
-  die Datei in den Aufgaben-Ordner der Zielrolle. Ohne Herkunft, als
-  Verzeichnis, zu tief oder mit unzulaessigem Zeichen wird das Einreichen mit
-  einem verstaendlichen Satz ABGEWIESEN statt stillschweigend uebernommen.
+  Ein Verweis in einen Rollen-Arbeitsbereich (`/work/...`) wird beim Einreichen
+  mit einem verstaendlichen Satz ABGEWIESEN statt stillschweigend uebernommen;
+  die Abweisung nennt den einen Uebergabeweg: Datei nach
+  `~/.cloudcli/assets/<name>` kopieren und diesen Pfad nennen
+  (Betreiberentscheidung agents-stack #128, kein Lesen fremder Rollen-Volumes).
   Andere absolute Pfade (`/opt/...`, `/root/...`) bleiben erlaubt und bekommen
   in der Antwort ein `hinweise`-Feld ("wird nur als Text im Prompt uebergeben");
   `TASK_QUEUE_REFS_STRICT=1` weist auch sie ab.

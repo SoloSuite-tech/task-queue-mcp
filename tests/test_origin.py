@@ -111,11 +111,12 @@ def test_unzustellbare_verweise_werden_abgewiesen(ref):
     assert fehler and ref in fehler
 
 
-def test_work_verweis_braucht_herkunft():
-    fehler, _ = refs_pruefen(["/work/administrator/bild-1.jpg"], herkunft_bekannt=False)
-    assert fehler and "Herkunft" in fehler
-    fehler, hinweise = refs_pruefen(["/work/administrator/bild-1.jpg"], herkunft_bekannt=True)
-    assert fehler is None and hinweise == []
+def test_work_verweis_wird_immer_abgewiesen():
+    """Ein Uebergabeweg (agents-stack #128): auch beglaubigte Herkunft oeffnet
+    keine fremden Rollen-Volumes; die Abweisung nennt den Asset-Weg."""
+    for herkunft in (False, True):
+        fehler, _ = refs_pruefen(["/work/administrator/bild-1.jpg"], herkunft_bekannt=herkunft)
+        assert fehler and "~/.cloudcli/assets/<name>" in fehler
 
 
 def test_fremder_pfad_nur_mit_hinweis():
@@ -152,15 +153,17 @@ def einreichen(**kw):
         return ergebnis
 
 
-def test_work_verweis_ohne_herkunft_wird_nicht_eingereicht():
-    ergebnis = einreichen(context_refs=["/work/administrator/small-dreams/bild-1.jpg"])
-    assert ergebnis["ok"] is False
-    assert "Cloud" in ergebnis["error"]
+def test_work_verweis_wird_nicht_eingereicht():
+    for origin in (None, {"user": "cevin-30bb4a", "role": "frontend-developer"}):
+        kw = {"origin": origin} if origin else {}
+        ergebnis = einreichen(context_refs=["/work/administrator/small-dreams/bild-1.jpg"], **kw)
+        assert ergebnis["ok"] is False
+        assert "~/.cloudcli/assets/<name>" in ergebnis["error"]
 
 
-def test_work_verweis_mit_herkunft_wird_vermerkt():
+def test_herkunft_wird_vermerkt():
     ergebnis = einreichen(
-        context_refs=["/work/administrator/small-dreams/bild-1.jpg"],
+        context_refs=["/home/agent/.cloudcli/assets/bild-1.jpg"],
         origin={"user": "cevin-30bb4a", "role": "frontend-developer"},
     )
     assert ergebnis["ok"] is True

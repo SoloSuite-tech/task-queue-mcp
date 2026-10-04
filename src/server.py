@@ -231,9 +231,8 @@ def submit_task(
         return {"ok": False, "error": refusal}
 
     # Herkunft der Sitzung (Konto + Sandbox-Rolle), signiert von der
-    # Kontrollebene — s. src/origin.py. Nur damit sind Dateiverweise in den
-    # eigenen Arbeitsbereich zustellbar (parker #157); ohne sie weist
-    # submit_task sie mit Begruendung ab, statt sie stumm zu uebernehmen.
+    # Kontrollebene — s. src/origin.py. Damit weiss die Zustellung, aus wessen
+    # Home ein Anhang (~/.cloudcli/assets/<name>) stammt (parker #157).
     return _with_cockpit_url(
         submit_task_handler(
             origin=_origin_der_sitzung(),
