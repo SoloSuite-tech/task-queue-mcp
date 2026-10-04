@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-28
+
+### Fixed
+- **Guardrail "Mandantengrenze" matched a mention, not an access.** Platform-gap
+  tickets must state whether other deployments are affected; that sentence
+  ("ob andere Deployments dasselbe Muster haben") produced BLOCK and forced
+  "Nicht umsetzbar" (Leitstand #139, seen on bbp #137). The rule now requires an
+  access word (Zugriff, einloggen, lesen, exportieren, Daten, ...) within five
+  words of the foreign tenant, in either direction — same shape as the secrets
+  rule. The mere mention is a REVIEW finding ("Plattformweite Aenderung /
+  mitbetroffene Deployments"), so the operator still gates it. Moving to
+  another server is no longer BLOCK either (REVIEW via infrastructure rules).
+  `src/tools/ticket_validator.py`; the Leitstand ships a byte-identical copy and
+  its CI now fails on drift.
+
+## [0.13.0] - 2026-09-27
+
+### Added
+- **`sicherheit_melden(kategorie, zitat, anmerkung)`** for every role, registered
+  whenever the server runs (independent of the ticket system). Forwards the
+  token-derived actor and the peer address to the control plane's
+  `/internal/sicherheit` route, which sends a small signed bundle WITHOUT
+  transcript to the operator. Categories: plattform-code | systemprompt |
+  backup | zugangsdaten | rechte-umgehung | sonstiges; zitat capped at 300,
+  anmerkung at 500 characters. Always answers `ok: true` — without a control
+  plane, or when it fails, the report is logged locally (`sicherheit.melden
+  LOKAL`). `src/tools/sicherheit.py`.
+
+### Changed
+- **Code lock on role submissions.** The MCP tool `submit_task` (role tokens)
+  refuses tasks whose summary or description carries the isolation marker
+  `workspace:agents` on its own line (same pattern as the control plane's
+  `app/src/isolation-marker.js`). No agent changes platform code, role
+  contracts, system prompts or guardrails; the operator path
+  (`POST /tasks/submit`, shared secret) is unchanged. `src/tools/isolation.py`.
+- `ticket_create` description: tickets and their transcript are readable by the
+  customer — platform gaps as symptom and effect, no internal code paths.
+
 ## [0.11.0] - 2026-09-05
 
 ### Added

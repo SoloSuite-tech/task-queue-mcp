@@ -60,7 +60,13 @@ def configured() -> bool:
     )
 
 
-def control_base() -> str:
+def control_configured() -> bool:
+    """Kontrollebene erreichbar konfiguriert — unabhaengig vom Ticketsystem.
+    sicherheit_melden braucht nur das, nicht AGENTS_TICKETS_*."""
+    return bool(_env("TASK_QUEUE_CONTROL_URL")) and bool(_env("TASK_QUEUE_CONTROL_SECRET"))
+
+
+def control_root() -> str:
     """Basis der internen Routen der Kontrollebene: Host aus CONTROL_URL, Pfad aus
     der oeffentlichen Basis-URL (dieselbe Ableitung wie app/src/config.js)."""
     host = _env("TASK_QUEUE_CONTROL_URL").rstrip("/")
@@ -68,7 +74,11 @@ def control_base() -> str:
     base = _env("TASK_QUEUE_CONTROL_BASE_URL")
     if base:
         pfad = urllib.parse.urlparse(base).path.rstrip("/")
-    return f"{host}{pfad}/internal/tickets"
+    return f"{host}{pfad}/internal"
+
+
+def control_base() -> str:
+    return control_root() + "/tickets"
 
 
 def peer_ip() -> str | None:
@@ -84,9 +94,13 @@ def peer_ip() -> str | None:
 
 
 def _call(
-    method: str, path: str = "", body: dict | None = None, params: dict | None = None
+    method: str,
+    path: str = "",
+    body: dict | None = None,
+    params: dict | None = None,
+    base: str | None = None,
 ) -> dict:
-    url = control_base() + path
+    url = (base or control_base()) + path
     if params:
         url += "?" + urllib.parse.urlencode(
             {k: v for k, v in params.items() if v not in (None, "")}

@@ -33,6 +33,31 @@ GEHEIM_MUSTER = (
 )
 
 
+# Mandantengrenze heisst ZUGRIFF auf einen anderen Kunden — nicht dessen
+# Erwaehnung. Plattform-Meldungen MUESSEN nennen, ob andere Deployments
+# mitbetroffen sind (Rollenregeln); bis 27.09.2026 (Ticket solosuite #139)
+# loeste genau diese Pflichtangabe BLOCK aus. Wie bei GEHEIM_MUSTER: Zugriffs-
+# wort und fremder Mandant nah beieinander, beide Richtungen. Die blosse
+# Nennung faellt unter REVIEW (Plattformweite Aenderung), nicht unter BLOCK.
+_MANDANT_ZIEL = (
+    r"(?:anderer|andere[nrs]?|fremde[nrs]?|weitere[nrs]?|another|other|foreign)\s+"
+    r"(?:kunden?|customers?|mandant(?:en)?|tenants?|deployments?|installation(?:en)?|server|hosts?)"
+    r"|alle[nr]?\s+(?:mandanten|kunden|deployments)"
+)
+_MANDANT_ZUGRIFF = (
+    r"zugriff\w*|zugreif\w*|zugang\w*|einseh\w*|einsicht|einlogg\w*|anmeld\w*|login|\bssh\b|"
+    r"lesen\b|lies\b|ausles\w*|kopier\w*|export\w*|dump\w*|durchsuch\w*|abfrag\w*|auswert\w*|"
+    r"daten(?:bank(?:en)?|s[aä]tze|bestand)?\b|kundendaten|kontakte|nutzer(?:daten|konten)?|konten|"
+    r"mails?\b|passw\w*|zugangsdaten|credentials?|wechsel\w*|umschalt\w*|verbind\w*|contacts?\b|"
+    r"access\w*|read\b|query|browse|impersonat\w*"
+)
+MANDANT_MUSTER = (
+    rf"(?:{_MANDANT_ZUGRIFF}){_NAH}(?:{_MANDANT_ZIEL})"
+    rf"|(?:{_MANDANT_ZIEL}){_NAH}(?:{_MANDANT_ZUGRIFF})"
+    r"|kundendaten\s+(?:anderer|fremder|aller)"
+)
+
+
 # Harte Grenzen: Muster -> Grund. Wortgrenzen bewusst locker (deutsch/englisch, Flexion).
 HART = [
     (
@@ -94,12 +119,7 @@ HART = [
         "oot|admin)",
         "Prompt-Injection",
     ),
-    (
-        "(anderer|andere|fremde[rn]?)\\s+(kunde|mandant"
-        "|tenant|server|deployment)|kundendaten\\s+(von"
-        "|anderer)|alle\\s+mandanten",
-        "Mandantengrenze",
-    ),
+    (MANDANT_MUSTER, "Mandantengrenze"),
 ]
 
 # Betriebs-/Architekturrelevanz: Bewertung ja, Freigabe nur durch Betreiber.
@@ -164,7 +184,11 @@ REVIEW = [
         "n)",
         "Automatisierung mit Aussenwirkung",
     ),
-    (r"alle\s+kunden|f[uü]r\s+jeden\s+kunden|plattformweit|global", "Plattformweite Aenderung"),
+    (
+        r"alle\s+kunden|f[uü]r\s+jeden\s+kunden|plattformweit|flottenweit|global"
+        r"|(?:andere|weitere|alle)\s+(?:deployments?|installationen|mandanten)|mitbetroffen",
+        "Plattformweite Aenderung / mitbetroffene Deployments",
+    ),
 ]
 
 STACK_HINWEIS = (
