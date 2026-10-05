@@ -11,7 +11,7 @@ import yaml
 
 from src.lineage import fingerprint
 from src.lineage import validate as validate_lineage
-from src.tools.refs import refs_pruefen
+from src.tools.refs import anhaenge_im_text, refs_normalisieren, refs_pruefen
 
 logger = logging.getLogger(__name__)
 
@@ -246,16 +246,22 @@ def submit_task_handler(
     risk_level: str = "low",
     requires_approval: bool = False,
     priority: str = "normal",
-    context_refs: list | None = None,
+    context_refs: list | str | None = None,
     ttl_days: int = 30,
     workflow_mode: str = "semi-auto",
     originating_task_id: str | None = None,
     queue_dir: str | None = None,
     lineage: dict | None = None,
     origin: dict | None = None,
+    attachments: list | str | None = None,
 ) -> dict:
-    if context_refs is None:
-        context_refs = []
+    # Jede Eingangsform annehmen (JSON-String, Komma-Liste, ~/…) und Chat-
+    # Anhaenge, die nur im Text stehen, mitnehmen — s. refs.refs_normalisieren.
+    context_refs = refs_normalisieren(context_refs, attachments)
+    aus_text = [
+        r for r in anhaenge_im_text(summary or "", description or "") if r not in context_refs
+    ]
+    context_refs.extend(aus_text)
     if queue_dir is None:
         queue_dir = os.environ.get("TASK_QUEUE_DIR", "/task-queue")
 
@@ -321,6 +327,12 @@ def submit_task_handler(
         )
         if err:
             return {"ok": False, "error": err}
+        if aus_text:
+            hinweise.append(
+                "Aus dem Text als Anhang uebernommen: "
+                + ", ".join(aus_text)
+                + ". Anhaenge kuenftig in `attachments` nennen."
+            )
 
     try:
         lineage = validate_lineage(lineage)
@@ -1115,6 +1127,7 @@ def amend_task_handler(
     actor: str,
     reason: str = "",
     queue_dir: str | None = None,
+    attachments: list | str | None = None,
 ) -> dict:
     """
     Append an amendment to a queued task. Append-only by construction: the original
@@ -1138,6 +1151,17 @@ def amend_task_handler(
 
     if not actor or not actor.strip():
         return {"ok": False, "error": "actor must not be empty"}
+
+    # Nachgereichte Anhaenge: gleiche Formen und Pruefung wie bei submit_task.
+    neue_refs = refs_normalisieren(attachments)
+    if neue_refs:
+        err = _validate_context_refs(neue_refs)
+        if not err:
+            err, _ = refs_pruefen(neue_refs, herkunft_bekannt=False, strict=_refs_strict())
+        if err:
+            return {"ok": False, "error": err}
+        if not amendment or not amendment.strip():
+            amendment = "Anhaenge nachgereicht: " + ", ".join(neue_refs)
 
     if not amendment or not amendment.strip():
         return {"ok": False, "error": "amendment must not be empty"}
@@ -1198,15 +1222,23 @@ def amend_task_handler(
                 ),
             }
 
+        if neue_refs:
+            refs = payload.get("context_refs")
+            if not isinstance(refs, list):
+                refs = []
+            refs.extend(r for r in neue_refs if r not in refs)
+            payload["context_refs"] = refs
+
         now = _now()
-        amendments.append(
-            {
-                "timestamp": now,
-                "actor": actor,
-                "reason": reason,
-                "text": amendment,
-            }
-        )
+        eintrag = {
+            "timestamp": now,
+            "actor": actor,
+            "reason": reason,
+            "text": amendment,
+        }
+        if neue_refs:
+            eintrag["context_refs"] = neue_refs
+        amendments.append(eintrag)
 
         history_entry = {
             "timestamp": now,

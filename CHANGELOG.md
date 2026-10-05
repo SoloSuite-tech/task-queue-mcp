@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-05
+
+### Changed
+- **Anhaenge in jeder Form** (`src/tools/refs.py`): `submit_task` nimmt
+  `context_refs` auch als JSON-Liste im Text, komma- oder zeilengetrennt, als
+  einzelnen Pfad und mit `~/` an. Befund 05.10.: ein Modell schickte dreimal
+  `'["/home/agent/.cloudcli/assets/…png"]'`, pydantic wies ab, der Agent schrieb
+  den Pfad in die Beschreibung und das Bild kam nie an.
+- Chat-Anhaenge (`~/.cloudcli/assets/<datei>`), die nur in Summary oder
+  Beschreibung stehen, werden als Anhang uebernommen; die Antwort nennt sie in
+  `hinweise`.
+
+### Added
+- Parameter **`attachments`** an `submit_task`, `amend_task` und den
+  Betreiber-Routen `/tasks/submit` und `/tasks/<id>/amend` (gleiche Regeln wie
+  `context_refs`, beide werden zusammengefuehrt). `amend_task` reicht damit
+  Anhaenge nach; ohne Text wird der Nachtrag automatisch beschriftet.
+
 ## [0.14.0] - 2026-10-02
 
 ### Added

@@ -159,3 +159,29 @@ def test_server_amend_task_target_agent_rejected(server):
     r = _submit(server)
     out = server.amend_task(task_id=r["task_id"], amendment="nope", actor="developer")
     assert out["ok"] is False
+
+
+def test_server_submit_tool_schema_nimmt_string(server):
+    """Befund 05.10.: Modelle schicken context_refs als JSON-String — das Schema
+    muss den String zulassen, sonst scheitert der Aufruf schon in pydantic."""
+    import asyncio
+
+    tool = asyncio.run(server.mcp.get_tool("submit_task"))
+    props = tool.parameters["properties"]
+    for name in ("context_refs", "attachments"):
+        typen = {t.get("type") for t in props[name]["anyOf"]}
+        assert {"array", "string"} <= typen, (name, props[name])
+
+
+def test_server_submit_attachments_json_string(server):
+    bild = "/home/agent/.cloudcli/assets/zimmer.png"
+    r = server.submit_task(
+        source_agent="research",
+        target_agent="developer",
+        task_type="build",
+        summary="s",
+        description="d",
+        context_refs=f'["{bild}"]',
+    )
+    assert r["ok"] is True, r
+    assert server.get_task(r["task_id"])["payload"]["context_refs"] == [bild]

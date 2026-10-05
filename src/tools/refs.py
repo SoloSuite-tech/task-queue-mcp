@@ -37,6 +37,7 @@ Argumente und ein ``rm -rf``-Ziel und darf sich dafuer nicht auf die Queue
 verlassen.
 """
 
+import json
 import re
 
 ASSET_ROOT = "/home/agent/.cloudcli/assets"
@@ -136,3 +137,79 @@ def refs_pruefen(
             "nicht oeffnen. Zustellbar sind nur Dateien unter ~/.cloudcli/assets/<name>."
         )
     return None, hinweise
+
+
+# ---------------------------------------------------------------------------
+# Eingangsform: Modelle reichen die Liste nicht immer als Liste.
+#
+# Befund 05.10. (OpenCode, Zimmer-Redesign an ai-engineer): dreimal
+# ``context_refs='["/home/agent/.cloudcli/assets/…png"]'`` — ein JSON-String
+# statt einer Liste. Pydantic wies das ab, der Agent wich auf "Pfad in die
+# Beschreibung" aus, und das Bild kam nie an. Deshalb: jede vernuenftige Form
+# annehmen (Liste, JSON-Liste als Text, Komma/Zeilen getrennt, einzelner Pfad,
+# ``~/`` statt ``/home/agent/``) und Chat-Anhaenge, die nur im Text stehen,
+# trotzdem zustellen.
+
+HOME = "/home/agent"
+
+# Chat-Anhang im Fliesstext: absolute oder ~-Form, Dateiname wie _SEGMENT_RE.
+_ASSET_IM_TEXT_RE = re.compile(
+    r"(?:(?<=[\s\"'`(\[<,;:])|^)(?:/home/agent|~)/\.cloudcli/assets/([A-Za-z0-9][A-Za-z0-9._-]{0,127})"
+)
+
+
+def _tilde(ref: str) -> str:
+    return HOME + ref[1:] if ref.startswith("~/") else ref
+
+
+def refs_normalisieren(*werte) -> list:
+    """
+    Fuehrt context_refs/attachments in jeder Eingangsform zu einer Liste zusammen.
+
+    Strings werden zerlegt (JSON-Liste, sonst Zeilen/Kommas), Eintraege getrimmt,
+    ``~/`` zu ``/home/agent/``, Duplikate entfernt (Reihenfolge bleibt). Nicht-
+    Strings bleiben stehen — die Pruefung danach weist sie mit Begruendung ab.
+    """
+    roh: list = []
+    for wert in werte:
+        if wert is None:
+            continue
+        if isinstance(wert, str):
+            text = wert.strip()
+            if not text:
+                continue
+            if text.startswith("["):
+                try:
+                    geparst = json.loads(text)
+                except ValueError:
+                    geparst = None
+                if isinstance(geparst, list):
+                    roh.extend(geparst)
+                    continue
+            roh.extend(t for t in re.split(r"[\n,]", text))
+        elif isinstance(wert, (list, tuple)):
+            roh.extend(wert)
+        else:
+            roh.append(wert)
+
+    ergebnis: list = []
+    for eintrag in roh:
+        if isinstance(eintrag, str):
+            eintrag = _tilde(eintrag.strip().strip("\"'`"))
+            if not eintrag:
+                continue
+        if eintrag not in ergebnis:
+            ergebnis.append(eintrag)
+    return ergebnis
+
+
+def anhaenge_im_text(*texte: str) -> list[str]:
+    """Chat-Anhaenge (``~/.cloudcli/assets/<datei>``), die nur im Text genannt sind."""
+    treffer: list[str] = []
+    for text in texte:
+        for m in _ASSET_IM_TEXT_RE.finditer(text or ""):
+            name = m.group(1).rstrip(".")
+            ref = f"{ASSET_ROOT}/{name}"
+            if name and ref not in treffer:
+                treffer.append(ref)
+    return treffer
