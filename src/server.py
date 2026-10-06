@@ -167,8 +167,8 @@ def _origin_der_sitzung() -> dict | None:
     """Beglaubigte Herkunft aus den HTTP-Headern des laufenden MCP-Aufrufs.
 
     get_http_headers() gibt es nur auf dem HTTP-Transport; auf stdio und in
-    Tests gibt es keine Herkunft — dann None, und /work-Verweise werden
-    abgewiesen statt geraten."""
+    Tests gibt es keine Herkunft — dann None, und die Zustellung faellt auf
+    den Rueckfall ueber die einreichende Rolle zurueck."""
     try:
         from fastmcp.server.dependencies import get_http_headers
 
@@ -187,11 +187,12 @@ def submit_task(
     risk_level: str = "low",
     requires_approval: bool = False,
     priority: str = "normal",
-    context_refs: list[str] | None = None,
+    context_refs: list[str] | str | None = None,
     ttl_days: int = 30,
     workflow_mode: str = "semi-auto",
     originating_task_id: str | None = None,
     lineage: dict | None = None,
+    attachments: list[str] | str | None = None,
 ) -> dict:
     """
     Submit a new task to the queue.
@@ -200,13 +201,16 @@ def submit_task(
     risk_level: low | medium | high
     priority: normal | high | urgent
     workflow_mode: semi-auto | auto
-    context_refs: list of absolute paths relevant to this task. Deliverable (the
-      control plane copies the file into the target role's task folder): a chat
-      attachment ~/.cloudcli/assets/<file> and, with a signed origin, a file in
-      your own workspace /work/<folder>/<file>. A /work path that cannot be
-      delivered is refused here instead of arriving unreadable; any other
-      absolute path is accepted and answered with a `hinweise` note that the
-      target role cannot open it.
+    attachments: files for the target role — ANY file type (images, PDFs, CSV, …).
+      Pass every chat attachment and every file you want to hand over HERE, as a
+      list of paths ~/.cloudcli/assets/<file>; do not just mention it in the
+      description. A file you produced yourself (e.g. under /work/...): copy it to
+      ~/.cloudcli/assets/<name> first and pass that path. The control plane copies
+      each file into the target role's task folder. A list, a JSON list string or
+      comma-separated paths are all accepted.
+    context_refs: same as attachments (older name); both are merged. Other absolute
+      paths are kept as text context, with a `hinweise` note that the target role
+      cannot open them; /work paths are refused with the way to hand them over.
     originating_task_id: UUID of the parent task. The dispatcher inherits its
       workflow_mode, and if that parent targets you and is approved or in-progress it is
       auto-closed as completed — submitting the return task IS closing the request.
@@ -244,7 +248,8 @@ def submit_task(
             risk_level=risk_level,
             requires_approval=requires_approval,
             priority=priority,
-            context_refs=context_refs or [],
+            context_refs=context_refs,
+            attachments=attachments,
             ttl_days=ttl_days,
             workflow_mode=workflow_mode,
             originating_task_id=originating_task_id,
@@ -421,7 +426,13 @@ def unpark_task(task_id: str, actor: str, note: str = "", status: str | None = N
 
 
 @mcp.tool()
-def amend_task(task_id: str, amendment: str, actor: str, reason: str = "") -> dict:
+def amend_task(
+    task_id: str,
+    amendment: str,
+    actor: str,
+    reason: str = "",
+    attachments: list[str] | str | None = None,
+) -> dict:
     """
     Append a correction to a queued task without rewriting it. The original description is
     never modified — amendments accumulate under payload.amendments and readers render them
@@ -433,6 +444,9 @@ def amend_task(task_id: str, amendment: str, actor: str, reason: str = "") -> di
     agent_may_have_started in the response, since the agent may already have read the
     original. More than one or two amendments is a signal to cancel and re-queue instead.
 
+    attachments: files to hand over in addition (~/.cloudcli/assets/<file>, same rules as
+    submit_task). They are delivered if the task has not started yet.
+
     Returns {ok, task_id, amendment_count, agent_may_have_started} or {ok: false, error}.
     """
     ok, actor = bind_actor(actor)
@@ -440,7 +454,12 @@ def amend_task(task_id: str, amendment: str, actor: str, reason: str = "") -> di
         return {"ok": False, "error": actor}
 
     return amend_task_handler(
-        task_id=task_id, amendment=amendment, actor=actor, reason=reason, queue_dir=QUEUE_DIR
+        task_id=task_id,
+        amendment=amendment,
+        actor=actor,
+        reason=reason,
+        attachments=attachments,
+        queue_dir=QUEUE_DIR,
     )
 
 
@@ -883,6 +902,7 @@ async def http_amend(request: Request) -> JSONResponse:
         amendment=body.get("amendment", ""),
         actor=OPERATOR_ACTOR,
         reason=body.get("reason", ""),
+        attachments=body.get("attachments"),
         queue_dir=QUEUE_DIR,
     )
     return _control_response(result)
@@ -1033,7 +1053,8 @@ async def http_submit(request: Request) -> JSONResponse:
         risk_level=body.get("risk_level", "medium"),
         requires_approval=bool(body.get("requires_approval", True)),
         priority=body.get("priority", "high"),
-        context_refs=body.get("context_refs") or [],
+        context_refs=body.get("context_refs"),
+        attachments=body.get("attachments"),
         ttl_days=int(body.get("ttl_days", 14)),
         workflow_mode=body.get("workflow_mode", "auto"),
         originating_task_id=body.get("originating_task_id"),
